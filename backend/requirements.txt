@@ -1,0 +1,10 @@
+# Pure-Python stack — works on Python 3.14 without any Rust/C compilation
+Flask==3.0.3
+Flask-Cors==4.0.1
+Werkzeug==3.0.3
+pdfplumber==0.11.9
+pdfminer.six==20251230
+openpyxl==3.1.2
+reportlab==4.1.0
+httpx==0.25.2
+python-dotenv==1.0.0
