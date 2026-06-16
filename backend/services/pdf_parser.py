@@ -1901,17 +1901,28 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             r"9B\s*[-–]\s*CDNR\b",                    # exact: no CDNUR false-match
             r"10\s*[-–]\s*CDNR\b",                    # some PDF formats use section 10
             r"CDNR\b",                                 # word boundary: no CDNUR match
+            # Old 2-column portal layout: "9B - Credit / Debit Notes (Registered)"
+            # has NO "CDNR" acronym. The parenthesised "(Registered)" uniquely
+            # distinguishes it from "(Unregistered)" without a fragile lookahead.
+            r"Credit\s*/?\s*Debit\s*Notes?\s*\(\s*Registered\s*\)",
             r"Credit.*Debit.*Notes.*Registered(?!.*Unregistered)",
             end_patterns=[r"9C\s*[-–]", r"9B\s*[-–].*Unregistered",
+                          r"\(\s*Unregistered\s*\)",
                           r"10\s*[-–]", r"11\s*[-–]", r"HSN", r"Advance",
                           r"Unregistered"],
             max_chars=3000,
         )
         if sec_cdnr:
             logger.debug("[GSTR-1][sections] CDNR section found (%d chars)", len(sec_cdnr))
-            # Use CDN-aware column mapper (not generic _gstr1_map_cols which assumes
-            # 3-val = B2CS intra-state instead of CDN inter-state).
-            cdnr_nums = _gstr1_total_nums(sec_cdnr)
+            # Drop "IP Address: x.x.x.x" lines — they leak spurious decimals.
+            sec_cdnr_clean = re.sub(r'(?im)^.*IP\s*Address.*$', '', sec_cdnr)
+            # Old 2-column portal layout has an extra leading "Total Note value"
+            # column before "Total Taxable value". Skip it so the amount we keep is
+            # the TAXABLE base (consistent with the newer format's "Value" column).
+            _note_col = bool(re.search(r'note\s*value', sec_cdnr_clean, re.IGNORECASE))
+            cdnr_nums = _gstr1_total_nums(sec_cdnr_clean)
+            if _note_col and len(cdnr_nums) >= 2:
+                cdnr_nums = cdnr_nums[1:]   # drop Note value → first value becomes Taxable
             cdnr_data = _gstr1_map_cdn_cols(cdnr_nums)   # CDN-specific: 3-val=[taxable,IGST,CGST]
             if cdnr_data["taxable"] != 0.0:   # negative CDN values are valid
                 sections["cdnr"] = cdnr_data
@@ -1953,6 +1964,9 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             # If NOTHING survives the filter, treat as no real CDNUR data (pass empty list
             # so the mapper returns zeros) — do NOT fall back to the noisy original.
             cdnur_nums_clean = [n for n in cdnur_nums if abs(_gstr1_parse_amount(n)) >= 1000]
+            # Old layout: skip leading "Total Note value" column → keep Taxable base.
+            if re.search(r'note\s*value', sec_cdnur, re.IGNORECASE) and len(cdnur_nums_clean) >= 2:
+                cdnur_nums_clean = cdnur_nums_clean[1:]
             cdnur_data = _gstr1_map_cdn_cols(cdnur_nums_clean)   # empty list → all-zero row
             # CDNUR structural fix:
             # All CDNUR types (B2CL, EXPWP, EXPWOP) are inter-state — CGST/SGST must
@@ -2875,9 +2889,17 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
                  'total_taxable_value', 'total_igst',
                  'nil_taxable_value', 'nil_exempt', 'nil_non_gst',
                  'b2cs_taxable_value', 'b2cs_cgst', 'b2cs_sgst']
+    # CDN fields: the table extractor returns 0.0 (not None) for the old 2-column
+    # layout where it can't read the 9B grid. A table ZERO must NOT clobber a valid
+    # non-zero value the section parser already recovered.
+    _CDN_FIELDS = {'cdnr_taxable', 'cdn_value', 'cdnr_igst', 'cdnr_cgst', 'cdnr_sgst',
+                   'cdnur_taxable', 'cdnur_igst'}
     for _k in _CRITICAL:
         if _k in _tbl_pre and _tbl_pre[_k] is not None:
-            data[_k] = _tbl_pre[_k]
+            tv = _tbl_pre[_k]
+            if _k in _CDN_FIELDS and (tv == 0 or tv == 0.0) and data.get(_k):
+                continue   # keep section value; table found nothing
+            data[_k] = tv
 
     # ── Structural Validation Checks ─────────────────────────────────────────
     total_b2b      = parse_amount(data.get("b2b_taxable_value"))
