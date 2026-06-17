@@ -2265,6 +2265,11 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
       9B               — Credit/Debit Notes Registered
       12               — HSN-wise Summary → AUTHORITATIVE final sales
     """
+    # Strip "IP Address: x.x.x.x" metadata lines up front — when a section (esp.
+    # empty amendment tables 9C/10/11B) is read, the IP octets (e.g. 115.96,
+    # 111.10) otherwise leak in as spurious taxable/IGST values.
+    text = re.sub(r'(?im)^.*IP\s*Address.*$', '', text)
+
     data: Dict[str, Any] = {
         "form_type": "GSTR-1",
         "gstin": _extract_gstin(text),
