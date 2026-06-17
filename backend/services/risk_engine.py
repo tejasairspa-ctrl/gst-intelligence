@@ -109,6 +109,8 @@ _SUM_FIELDS = [
     "deemed_exports", "deemed_export_value",
     "sez_supplies", "sez_taxable_value",
     "export_taxable_value", "export_value",
+    # Correctly-extracted export/SEZ sub-fields (6A/6B) — used by the export ratio
+    "exp_expwp_taxable", "exp_expwop_taxable", "sez_sezwp_taxable", "sez_sezwop_taxable",
     "debit_notes_taxable",
     "total_igst", "total_cgst", "total_sgst",
     # GSTR-3B output fields
@@ -229,6 +231,21 @@ def _g3b_itc_4d1(g3b):
     return float(d_i or 0) + float(d_c or 0) + float(d_s or 0)
 
 
+def _g1_export_turnover(g1):
+    """Export turnover (GSTR-1) = Table 6A (EXPWP+EXPWOP) + 6B (SEZWP+SEZWOP).
+
+    Uses the correctly-extracted section sub-fields. The rolled-up
+    `export_taxable_value` field is unreliable on several PDF layouts (it can
+    capture unrelated large values), so it is only a last-resort fallback when
+    none of the sub-fields were parsed.
+    """
+    parts = [g1.get("exp_expwp_taxable"), g1.get("exp_expwop_taxable"),
+             g1.get("sez_sezwp_taxable"), g1.get("sez_sezwop_taxable")]
+    if any(p is not None for p in parts):
+        return sum(float(p or 0) for p in parts)
+    return float(g1.get("export_taxable_value") or g1.get("export_value") or 0)
+
+
 def _g3b_total_turnover_31(g3b):
     """Total Turnover [Table 3.1] = 3.1(a) taxable + 3.1(b) zero-rated."""
     a = g3b.get("taxable_sales") or g3b.get("total_taxable_value") or 0
@@ -319,11 +336,11 @@ _TREND_DEFS = [
 
     (41, "Export Turnover Ratio", "%", "neutral",
      lambda g1, g3b: _pct(
-         g1.get("export_taxable_value") or g1.get("export_value") or 0,
+         _g1_export_turnover(g1),
          g1.get("total_taxable_value") or 0),
      30, 60, False,
      lambda g1, g3b: [
-         _comp("Export Turnover", g1.get("export_taxable_value") or g1.get("export_value") or 0, "Table 6A, GSTR-1"),
+         _comp("Export Turnover", _g1_export_turnover(g1), "Table 6A/6B, GSTR-1"),
          _comp("Total Taxable Turnover", g1.get("total_taxable_value") or 0, "GSTR-1 Total"),
      ]),
 
@@ -410,7 +427,7 @@ def _gstr1_ratios(ext: dict) -> list:
     cdnur_taxable  = ext.get("cdnur_taxable") or 0
     deemed_exports = ext.get("deemed_exports") or ext.get("deemed_export_value") or 0
     sez_supplies   = ext.get("sez_supplies") or ext.get("sez_taxable_value") or 0
-    export_taxable = ext.get("export_taxable_value") or ext.get("export_value") or 0
+    export_taxable = _g1_export_turnover(ext)
     debit_notes    = ext.get("debit_notes_taxable") or 0
 
     r1   = _pct(deemed_exports, total_taxable) if total_taxable else None
