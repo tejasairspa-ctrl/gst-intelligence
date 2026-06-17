@@ -109,8 +109,9 @@ _SUM_FIELDS = [
     "deemed_exports", "deemed_export_value",
     "sez_supplies", "sez_taxable_value",
     "export_taxable_value", "export_value",
-    # Correctly-extracted export/SEZ sub-fields (6A/6B) — used by the export ratio
+    # Canonical export/SEZ/deemed sub-fields (6A/6B/6C) — the fields the MOM shows
     "exp_expwp_taxable", "exp_expwop_taxable", "sez_sezwp_taxable", "sez_sezwop_taxable",
+    "de_taxable",
     "debit_notes_taxable",
     "total_igst", "total_cgst", "total_sgst",
     # GSTR-3B output fields
@@ -231,19 +232,42 @@ def _g3b_itc_4d1(g3b):
     return float(d_i or 0) + float(d_c or 0) + float(d_s or 0)
 
 
+# ── Canonical GSTR-1 line items ───────────────────────────────────────────────
+# SINGLE SOURCE OF TRUTH. These MUST mirror the exact fields the MOM/Excel row
+# uses (routes/export.py::_build_ext_row). Every GSTR-1 ratio derives ONLY from
+# these accessors — never from parallel/fallback fields — so a ratio can never
+# show a number that the MOM table doesn't. (Validated by tests/test_ratio_sources.py)
+def g1_total(e):  return e.get("total_taxable_value") or 0          # HSN total (Table 12)
+def g1_b2b(e):    return e.get("b2b_taxable_value") or 0            # Table 4A
+def g1_b2cl(e):   return e.get("b2cl_taxable_value") or 0           # Table 5A/5B
+def g1_b2cs(e):   return e.get("b2cs_taxable_value") or 0           # Table 7
+def g1_nongst(e): return e.get("nil_non_gst") or 0                 # Table 8 Non-GST
+
+
+def g1_cdnr(e):
+    """9B CDNR — same precedence as the MOM row (cdn_value fallback)."""
+    v = e.get("cdnr_taxable")
+    return v if v is not None else (e.get("cdn_value") or 0)
+
+
+def g1_cdnur(e):  return e.get("cdnur_taxable") or 0               # Table 9B CDNUR
+def g1_deemed(e): return e.get("de_taxable") or 0                  # Table 6C Deemed Exports
+
+
+def g1_sez(e):
+    """SEZ supplies (Table 6B) = SEZWP + SEZWOP — the fields the MOM table shows."""
+    return (e.get("sez_sezwp_taxable") or 0) + (e.get("sez_sezwop_taxable") or 0)
+
+
 def _g1_export_turnover(g1):
     """Export turnover (GSTR-1) = Table 6A (EXPWP+EXPWOP) + 6B (SEZWP+SEZWOP).
 
-    Uses the correctly-extracted section sub-fields. The rolled-up
-    `export_taxable_value` field is unreliable on several PDF layouts (it can
-    capture unrelated large values), so it is only a last-resort fallback when
-    none of the sub-fields were parsed.
+    Sums ONLY the canonical section sub-fields the MOM table shows. The rolled-up
+    `export_taxable_value` field is NOT used — it captures unrelated large values
+    on several PDF layouts (e.g. ARSPL FY21-22 it held 77.97cr of garbage).
     """
-    parts = [g1.get("exp_expwp_taxable"), g1.get("exp_expwop_taxable"),
-             g1.get("sez_sezwp_taxable"), g1.get("sez_sezwop_taxable")]
-    if any(p is not None for p in parts):
-        return sum(float(p or 0) for p in parts)
-    return float(g1.get("export_taxable_value") or g1.get("export_value") or 0)
+    return ((g1.get("exp_expwp_taxable") or 0) + (g1.get("exp_expwop_taxable") or 0)
+            + (g1.get("sez_sezwp_taxable") or 0) + (g1.get("sez_sezwop_taxable") or 0))
 
 
 def _g3b_total_turnover_31(g3b):
@@ -325,13 +349,11 @@ _TREND_DEFS = [
     # Output Tax to Net ITC removed from trend (per user instruction)
 
     (1,  "Deemed Export Ratio", "%", "high_bad",
-     lambda g1, g3b: _pct(
-         g1.get("deemed_exports") or g1.get("deemed_export_value") or 0,
-         g1.get("total_taxable_value") or 0),
+     lambda g1, g3b: _pct(g1_deemed(g1), g1_total(g1)),
      10, 30, False,
      lambda g1, g3b: [
-         _comp("Deemed Exports", g1.get("deemed_exports") or g1.get("deemed_export_value") or 0, "Table 6(c), GSTR-1"),
-         _comp("Total Taxable Turnover", g1.get("total_taxable_value") or 0, "GSTR-1 Total"),
+         _comp("Deemed Exports", g1_deemed(g1), "Table 6(c), GSTR-1"),
+         _comp("Total Taxable Turnover", g1_total(g1), "GSTR-1 Total"),
      ]),
 
     (41, "Export Turnover Ratio", "%", "neutral",
@@ -419,14 +441,15 @@ def _fy_trend_ratios(fy_g1: dict, fy_g3b: dict, sorted_fys: list) -> dict:
 # ── GSTR-1 ratios (per period) ────────────────────────────────────────────────
 
 def _gstr1_ratios(ext: dict) -> list:
-    total_taxable  = ext.get("total_taxable_value") or 0
-    b2b_taxable    = ext.get("b2b_taxable_value") or 0
-    b2cl_taxable   = ext.get("b2cl_taxable_value") or 0
-    nil_non_gst    = ext.get("nil_non_gst") or 0
-    cdnr_taxable   = ext.get("cdnr_taxable") or ext.get("cdn_value") or 0
-    cdnur_taxable  = ext.get("cdnur_taxable") or 0
-    deemed_exports = ext.get("deemed_exports") or ext.get("deemed_export_value") or 0
-    sez_supplies   = ext.get("sez_supplies") or ext.get("sez_taxable_value") or 0
+    # Canonical accessors only — identical to the MOM/Excel row source fields.
+    total_taxable  = g1_total(ext)
+    b2b_taxable    = g1_b2b(ext)
+    b2cl_taxable   = g1_b2cl(ext)
+    nil_non_gst    = g1_nongst(ext)
+    cdnr_taxable   = g1_cdnr(ext)
+    cdnur_taxable  = g1_cdnur(ext)
+    deemed_exports = g1_deemed(ext)          # Table 6C (was deemed_exports/deemed_export_value)
+    sez_supplies   = g1_sez(ext)             # Table 6B (was sez_supplies/sez_taxable_value)
     export_taxable = _g1_export_turnover(ext)
     debit_notes    = ext.get("debit_notes_taxable") or 0
 
@@ -787,11 +810,10 @@ def _multiperiod_ratios(gstr1_list: list, gstr3b_list: list) -> list:
     ratios = []
 
     if len(gstr1_list) >= 2:
-        total_list  = [e.get("total_taxable_value") or 0 for e in gstr1_list]
-        deemed_list = [e.get("deemed_exports") or e.get("deemed_export_value") or 0 for e in gstr1_list]
-        sez_list    = [e.get("sez_supplies") or e.get("sez_taxable_value") or 0 for e in gstr1_list]
-        cdn_list    = [(e.get("cdnr_taxable") or e.get("cdn_value") or 0) + (e.get("cdnur_taxable") or 0)
-                       for e in gstr1_list]
+        total_list  = [g1_total(e)  for e in gstr1_list]
+        deemed_list = [g1_deemed(e) for e in gstr1_list]
+        sez_list    = [g1_sez(e)    for e in gstr1_list]
+        cdn_list    = [g1_cdnr(e) + g1_cdnur(e) for e in gstr1_list]
 
         valid_t = [t for t in total_list if t > 0]
 
