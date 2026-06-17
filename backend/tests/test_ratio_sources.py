@@ -25,10 +25,15 @@ class _Store:
     def get_all_reconciliations(self): return {}
 
 
+def _s(fn, exts):
+    return sum((fn(e) or 0) for e in exts)
+
+
 def _canonical_fy_totals(exts):
     """FY totals built from the SAME canonical accessors the MOM row uses."""
-    s = lambda fn: sum(fn(e) for e in exts)
+    s = lambda fn: _s(fn, exts)
     return {
+        # GSTR-1
         "B2B Sales":              abs(s(R.g1_b2b)),
         "B2CL Sales (Unregistered)": abs(s(R.g1_b2cl)),
         "Total Taxable Turnover": abs(s(R.g1_total)),
@@ -39,19 +44,30 @@ def _canonical_fy_totals(exts):
         "Deemed Exports":         s(R.g1_deemed),
         "SEZ Supplies":           s(R.g1_sez),
         "Non-GST Supplies":       s(R.g1_nongst),
+        # GSTR-3B
+        "ITC Availed":            abs(s(R._g3b_itc_availed)),
+        "Total ITC Availed":      abs(s(R._g3b_itc_availed)),
+        "ITC Reversed":           abs(s(R._g3b_itc_reversed)),
+        "Tax Paid via Cash":      abs(s(R._g3b_cash_paid)),
+        "Tax Paid via ITC":       abs(s(R._g3b_itc_paid)),
+        "Total Tax Liability":    abs(s(R._g3b_total_liab)),
+        "ISD Credit":             abs(s(R._g3b_isd)),
+        "ITC Reclaimed":          abs(s(R._g3b_itc_4d1)),
+        "Total Turnover":         abs(s(R._g3b_total_turnover_31)),
     }
 
 
 def check(folder):
     st = _Store()
     exts = []
-    for f in sorted(glob.glob(os.path.join(folder, "GSTR1_*.pdf"))):
-        fid = os.path.basename(f)
-        ext = parse_gst_pdf(f)
-        st.files[fid] = {"id": fid, "gst_type": "GSTR-1", "period": _period_from_filename(fid)}
-        st._ext[fid] = ext
-        if not ext.get("is_annual_summary"):
-            exts.append(ext)
+    for pat, gtype in (("GSTR1_*.pdf", "GSTR-1"), ("GSTR3B_*.pdf", "GSTR-3B")):
+        for f in sorted(glob.glob(os.path.join(folder, pat))):
+            fid = os.path.basename(f)
+            ext = parse_gst_pdf(f)
+            st.files[fid] = {"id": fid, "gst_type": gtype, "period": _period_from_filename(fid)}
+            st._ext[fid] = ext
+            if not ext.get("is_annual_summary"):
+                exts.append(ext)
 
     canon = _canonical_fy_totals(exts)
     res = R.compute_risk_ratios(st)

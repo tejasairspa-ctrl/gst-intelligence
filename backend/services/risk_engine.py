@@ -157,50 +157,33 @@ def _sum_fields(ext_list: list) -> dict:
 #                 "low_bad"  = lower value is riskier
 #                 "neutral"  = no inherent direction
 
+def _g3b_sum3(g3b, ik, ck, sk):
+    """Sum IGST+CGST+SGST of a GSTR-3B head; None only if all three are absent."""
+    i, c, s = g3b.get(ik), g3b.get(ck), g3b.get(sk)
+    if i is None and c is None and s is None:
+        return None
+    return float(i or 0) + float(c or 0) + float(s or 0)
+
+
+# Canonical GSTR-3B line items — MUST mirror routes/export.py::_build_3b_ext_row.
 def _g3b_itc_availed(g3b):
-    """Return total ITC availed, or None if the ITC section was not parsed."""
-    if g3b.get("itc_total") is not None:
-        return float(g3b["itc_total"])
-    igst = g3b.get("itc_avail_igst") or g3b.get("itc_igst_available") or g3b.get("itc_igst")
-    cgst = g3b.get("itc_avail_cgst") or g3b.get("itc_cgst_available") or g3b.get("itc_cgst")
-    sgst = g3b.get("itc_avail_sgst") or g3b.get("itc_sgst_available") or g3b.get("itc_sgst")
-    if igst is None and cgst is None and sgst is None:
-        return None   # ITC section not extracted — do not treat as 0
-    return float(igst or 0) + float(cgst or 0) + float(sgst or 0)
+    """Table 4(A) ITC Available — MOM '4(A) Total Avail' columns."""
+    return _g3b_sum3(g3b, "itc_avail_igst", "itc_avail_cgst", "itc_avail_sgst")
+
 
 def _g3b_itc_reversed(g3b):
-    """Return total ITC reversed, or None if not parsed."""
-    rev_i = g3b.get("itc_reversed_igst")
-    rev_c = g3b.get("itc_reversed_cgst")
-    rev_s = g3b.get("itc_reversed_sgst")
-    legacy = g3b.get("itc_reversed")
-    if legacy is not None:
-        return float(legacy)
-    if rev_i is None and rev_c is None and rev_s is None:
-        return None
-    return float(rev_i or 0) + float(rev_c or 0) + float(rev_s or 0)
+    """Table 4(B) ITC Reversed — MOM '4(B) Total Rev' columns."""
+    return _g3b_sum3(g3b, "itc_reversed_igst", "itc_reversed_cgst", "itc_reversed_sgst")
+
 
 def _g3b_cash_paid(g3b):
-    """Return total cash paid, or None if not parsed."""
-    if g3b.get("tax_paid_cash") is not None:
-        return float(g3b["tax_paid_cash"])
-    ci = g3b.get("cash_paid_igst")
-    cc = g3b.get("cash_paid_cgst")
-    cs = g3b.get("cash_paid_sgst")
-    if ci is None and cc is None and cs is None:
-        return None
-    return float(ci or 0) + float(cc or 0) + float(cs or 0)
+    """Table 6.1 tax paid in cash — MOM 'Cash' columns."""
+    return _g3b_sum3(g3b, "cash_paid_igst", "cash_paid_cgst", "cash_paid_sgst")
+
 
 def _g3b_itc_paid(g3b):
-    """Return total ITC used for payment, or None if not parsed."""
-    if g3b.get("tax_paid_itc") is not None:
-        return float(g3b["tax_paid_itc"])
-    ui = g3b.get("itc_used_igst")
-    uc = g3b.get("itc_used_cgst")
-    us = g3b.get("itc_used_sgst")
-    if ui is None and uc is None and us is None:
-        return None
-    return float(ui or 0) + float(uc or 0) + float(us or 0)
+    """Table 6.1 tax paid via ITC — MOM 'ITC' columns."""
+    return _g3b_sum3(g3b, "itc_used_igst", "itc_used_cgst", "itc_used_sgst")
 
 def _g3b_total_liab(g3b):
     """Total tax liability per DGARM spec = Table 6.1, Column (2) "Tax payable".
@@ -279,13 +262,11 @@ def _g3b_total_turnover_31(g3b):
 
 
 def _g3b_isd(g3b):
-    """ISD credit — Table 4(A)(4), GSTR-3B. None if not parsed."""
-    if g3b.get("itc_isd") is not None:
-        return float(g3b["itc_isd"])
-    vals = [g3b.get("itc_a4_igst"), g3b.get("itc_a4_cgst"), g3b.get("itc_a4_sgst")]
-    if all(v is None for v in vals):
-        return None
-    return sum(float(v or 0) for v in vals)
+    """ISD credit — Table 4(A)(4), GSTR-3B (the MOM '4(A)(4) ISD' columns)."""
+    v = _g3b_sum3(g3b, "itc_a4_igst", "itc_a4_cgst", "itc_a4_sgst")
+    if v is not None:
+        return v
+    return float(g3b["itc_isd"]) if g3b.get("itc_isd") is not None else None
 
 
 def _itc_net_trend(g3b):
