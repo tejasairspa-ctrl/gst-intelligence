@@ -915,7 +915,10 @@ def compute_risk_ratios(store) -> dict:
 
         if gstr1_info:
             ext = store.get_extracted_data(gstr1_info["id"])
-            if ext:
+            # Skip the annual/consolidated "System generated summary" reference file —
+            # its figures equal the sum of the 12 monthly returns, so including it
+            # would double-count every FY total and ratio.
+            if ext and not ext.get("is_annual_summary"):
                 gstr1_periods_used.append(period)
                 for r in _gstr1_ratios(ext):
                     r["_period"] = period          # tag for period breakdown
@@ -925,7 +928,7 @@ def compute_risk_ratios(store) -> dict:
 
         if gstr3b_info:
             ext = store.get_extracted_data(gstr3b_info["id"])
-            if ext:
+            if ext and not ext.get("is_annual_summary"):
                 gstr3b_periods_used.append(period)
                 for r in _gstr3b_ratios(ext):
                     r["_period"] = period
@@ -936,7 +939,7 @@ def compute_risk_ratios(store) -> dict:
         if gstr1_info and gstr3b_info:
             ext1 = store.get_extracted_data(gstr1_info["id"])
             ext3 = store.get_extracted_data(gstr3b_info["id"])
-            if ext1 and ext3:
+            if ext1 and ext3 and not ext1.get("is_annual_summary") and not ext3.get("is_annual_summary"):
                 for r in _cross_form_ratios(ext1, ext3):
                     r["_period"] = period
                     cross_ratios_all.append(r)

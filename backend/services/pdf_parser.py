@@ -351,6 +351,9 @@ def parse_gstr3b(text: str, tables: List[List[List]]) -> Dict[str, Any]:
     """
     data: Dict[str, Any] = {
         "form_type": "GSTR-3B",
+        # True for the GSTR-3B "System Generated Summary" (annual) reference file —
+        # excluded from risk-ratio aggregation so it is not double-counted.
+        "is_annual_summary": bool(re.search(r'system\s+generated\s+summary', text, re.IGNORECASE)),
         "gstin": _extract_gstin(text),
         "legal_name": _extract_legal_name(text),
         "period": _extract_period(text),
@@ -2272,6 +2275,10 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
 
     data: Dict[str, Any] = {
         "form_type": "GSTR-1",
+        # True for the GSTR-1/IFF "System generated summary" (annual/consolidated)
+        # reference file — excluded from MOM totals and from risk-ratio aggregation
+        # so it is never double-counted on top of the monthly returns.
+        "is_annual_summary": _gstr1_is_annual_summary(text),
         "gstin": _extract_gstin(text),
         "legal_name": _extract_legal_name(text),
         "period": _extract_period(text),
