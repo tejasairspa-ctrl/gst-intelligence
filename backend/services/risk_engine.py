@@ -891,7 +891,20 @@ def _period_sort_key(period: str):
 
 def compute_risk_ratios(store) -> dict:
     """Compute all DGARM risk ratios and multi-FY trend data from the session store."""
-    by_period = store.get_files_by_period()
+    # Build the period→type map ourselves, EXCLUDING annual/consolidated
+    # "System generated summary" reference files BEFORE grouping. This matters
+    # because an annual file is often named for the last month of the period
+    # (e.g. ..._032021 → "March 2021") and would otherwise overwrite the real
+    # monthly file in that slot — dropping that month from the totals. Excluding
+    # by file (not by period) keeps every monthly return intact.
+    by_period: dict = {}
+    for file_id, file_info in store.files.items():
+        ext = store.get_extracted_data(file_id)
+        if ext and ext.get("is_annual_summary"):
+            continue  # skip the annual reference PDF only
+        period   = file_info.get("period") or "Unknown Period"
+        gst_type = file_info.get("gst_type") or "UNKNOWN"
+        by_period.setdefault(period, {})[gst_type] = {**file_info, "id": file_id}
 
     gstr1_ratios_all   = []
     gstr3b_ratios_all  = []
