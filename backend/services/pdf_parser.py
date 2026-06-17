@@ -2116,6 +2116,142 @@ def _parse_gstr1_tables(tables: List) -> Dict[str, Any]:
     return result
 
 
+def _gstr1_is_annual_summary(text: str) -> bool:
+    """Detect the GSTR-1/IFF 'System generated summary' (annual/consolidated) format.
+
+    This format has an extra 'Total Invoice Value' (or 'Total Note Value') column
+    BEFORE 'Total Taxable Value', which shifts every value in the generic parsers.
+    """
+    return bool(re.search(r'system\s+generated\s+summary', text, re.IGNORECASE))
+
+
+def _gstr1_annual_nums(line: str) -> List[float]:
+    """Extract all numbers (Indian comma format, optional negative, decimals) from a line."""
+    out = []
+    for m in re.findall(r'-?\d[\d,]*(?:\.\d+)?', line):
+        try:
+            out.append(float(m.replace(',', '')))
+        except ValueError:
+            pass
+    return out
+
+
+def _gstr1_annual_row(lines: List[str], header_re: str) -> List[float]:
+    """Find a section by header and return the numbers of its data row.
+
+    Layout: <section header> / <'No. of Records ...' column header> / <data row>.
+    Watermark single-letter lines are skipped by requiring >= 3 numbers (most
+    data rows carry records + several monetary columns); falls back to >= 2.
+    """
+    for i, ln in enumerate(lines):
+        if re.search(header_re, ln, re.IGNORECASE):
+            window = lines[i + 1: i + 10]
+            # Prefer the first line after the 'No. of Records' column header.
+            start = 0
+            for j, w in enumerate(window):
+                if re.search(r'No\.\s*of\s*Records', w, re.IGNORECASE):
+                    start = j + 1
+                    break
+            for w in window[start:]:
+                nums = _gstr1_annual_nums(w)
+                if len(nums) >= 3:
+                    return nums
+            for w in window[start:]:
+                nums = _gstr1_annual_nums(w)
+                if len(nums) >= 2:
+                    return nums
+    return []
+
+
+def _parse_gstr1_annual_summary(text: str) -> Dict[str, Any]:
+    """Positional parser for the GSTR-1/IFF System-Generated-Summary format.
+
+    Column order per section (after the record count):
+      B2B/B2CS/HSN : Invoice Value | Taxable | IGST | CGST | SGST | Cess
+      B2CL/Exports : Invoice Value | Taxable | IGST [| Cess]
+      CDNR         : Note Value    | Taxable | IGST | CGST | SGST | Cess
+      CDNUR        : Note Value    | Taxable | IGST | Cess
+      Nil (8)      : Nil amount | Exempt amount | Non-GST amount
+    The leading Invoice/Note Value column is skipped so 'Taxable' is read correctly.
+    """
+    lines = [l for l in text.split('\n')]
+    out: Dict[str, Any] = {}
+
+    def grab(header_re, idx_map, after_count=2):
+        """idx_map: {field: position_in_nums}. after_count = index of Taxable col."""
+        nums = _gstr1_annual_row(lines, header_re)
+        if not nums:
+            return None
+        return nums
+
+    # 4A,4B,4C,6B,6C - B2B  → [records, invoice, taxable, igst, cgst, sgst, cess]
+    n = _gstr1_annual_row(lines, r"4A.*B2B\s*Invoices|B2B\s*Invoices")
+    if n and len(n) >= 4:
+        out["b2b_taxable_value"] = n[2]
+        out["b2b_igst"] = n[3]
+        if len(n) > 4: out["b2b_cgst"] = n[4]
+        if len(n) > 5: out["b2b_sgst"] = n[5]
+
+    # 5A,5B - B2C (Large) → [records, invoice, taxable, igst, cess]
+    n = _gstr1_annual_row(lines, r"5A,?\s*5B\s*-\s*B2C|B2C\s*\(Large\)")
+    if n and len(n) >= 4:
+        out["b2cl_taxable_value"] = n[2]
+        out["b2cl_igst"] = n[3]
+        out["b2cl_cgst"] = 0.0
+        out["b2cl_sgst"] = 0.0
+
+    # 7 - B2C (Others) = B2CS → [records, invoice, taxable, igst, cgst, sgst, cess]
+    n = _gstr1_annual_row(lines, r"7\s*-\s*B2C\s*\(Others\)")
+    if n and len(n) >= 4:
+        out["b2cs_taxable_value"] = n[2]
+        out["b2cs_igst"] = n[3]
+        if len(n) > 4: out["b2cs_cgst"] = n[4]
+        if len(n) > 5: out["b2cs_sgst"] = n[5]
+
+    # 9B - CDNR (Registered) → [records, note, taxable, igst, cgst, sgst, cess]
+    n = _gstr1_annual_row(lines, r"9B.*Credit\s*/?\s*Debit\s*Notes?\s*\(\s*Registered\s*\)")
+    if n and len(n) >= 4:
+        out["cdnr_taxable"] = n[2]; out["cdn_value"] = n[2]
+        out["cdnr_igst"] = n[3]
+        if len(n) > 4: out["cdnr_cgst"] = n[4]
+        if len(n) > 5: out["cdnr_sgst"] = n[5]
+
+    # 9B - CDNUR (Unregistered) → [records, note, taxable, igst, cess]
+    n = _gstr1_annual_row(lines, r"9B.*Credit\s*/?\s*Debit\s*Notes?\s*\(\s*Unregistered\s*\)")
+    if n and len(n) >= 4:
+        out["cdnur_taxable"] = n[2]
+        out["cdnur_igst"] = n[3]
+        out["cdnur_cgst"] = 0.0
+        out["cdnur_sgst"] = 0.0
+
+    # 6A - Exports → [records, invoice, taxable, igst]
+    n = _gstr1_annual_row(lines, r"6A\s*-\s*Exports")
+    if n and len(n) >= 3:
+        out["export_taxable_value"] = n[2]
+
+    # 8 - Nil/Exempt/Non-GST → [records, nil, exempt, nongst]
+    n = _gstr1_annual_row(lines, r"8\s*-\s*Nil")
+    if n and len(n) >= 4:
+        out["nil_taxable_value"] = n[1]
+        out["nil_exempt"] = n[2]
+        out["nil_non_gst"] = n[3]
+
+    # 12 - HSN summary = authoritative total turnover
+    #      → [records, invoice, taxable, igst, cgst, sgst, cess]
+    n = _gstr1_annual_row(lines, r"12\s*-\s*HSN")
+    if n and len(n) >= 4:
+        out["total_taxable_value"] = n[2]
+        out["total_igst"] = n[3]
+        if len(n) > 4: out["total_cgst"] = n[4]
+        if len(n) > 5: out["total_sgst"] = n[5]
+
+    logger.info("[GSTR-1][annual-summary] b2b=%s b2cl=%s b2cs=%s cdnr=%s cdnur=%s total=%s",
+                out.get("b2b_taxable_value"), out.get("b2cl_taxable_value"),
+                out.get("b2cs_taxable_value"), out.get("cdnr_taxable"),
+                out.get("cdnur_taxable"), out.get("total_taxable_value"))
+    return out
+
+
 # ── GSTR-1 Parser (TEXT-BASED, SECTION-AWARE) ─────────────────────────────────
 
 def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
@@ -2900,6 +3036,17 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
             if _k in _CDN_FIELDS and (tv == 0 or tv == 0.0) and data.get(_k):
                 continue   # keep section value; table found nothing
             data[_k] = tv
+
+    # ── GSTR-1/IFF "System generated summary" (annual) override ───────────────
+    # This format has a leading "Total Invoice Value" / "Total Note Value" column
+    # that shifts the generic parsers. Re-read each section positionally so the
+    # Taxable column (not the Invoice Value) is used. These values are authoritative.
+    if _gstr1_is_annual_summary(text):
+        _ann = _parse_gstr1_annual_summary(text)
+        for _k, _v in _ann.items():
+            if _v is not None:
+                data[_k] = _v
+        logger.info("[GSTR-1] Annual-summary override applied (%d fields)", len(_ann))
 
     # ── Structural Validation Checks ─────────────────────────────────────────
     total_b2b      = parse_amount(data.get("b2b_taxable_value"))
