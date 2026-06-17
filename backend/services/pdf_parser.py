@@ -3037,29 +3037,28 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
                 continue   # keep section value; table found nothing
             data[_k] = tv
 
-    # ── GSTR-1/IFF "System generated summary" (annual) override ───────────────
-    # This format has a leading "Total Invoice Value" / "Total Note Value" column
-    # that shifts the generic parsers. Re-read each section positionally so the
-    # Taxable column (not the Invoice Value) is used. These values are authoritative.
-    if _gstr1_is_annual_summary(text):
+    # ── Positional override for the "Total Invoice value / Note value" layout ──
+    # This column layout (annual summary AND QRMP monthly returns) scrambles the
+    # generic/text parsers for B2CL, B2CS, CDNR, CDNUR and the section totals.
+    # The positional reader is verified to reconcile exactly to the annual, so it
+    # is the source of truth for those sections. B2B is EXCLUDED on non-summary
+    # files: the positional B2B can fail on QRMP monthlies, and the generic B2B
+    # already reconciles there (positional B2B is only trusted in the annual).
+    _has_value_col = bool(re.search(r'Total\s+(?:Invoice|Note)\s+[Vv]alue', text))
+    if _gstr1_is_annual_summary(text) or _has_value_col:
         _ann = _parse_gstr1_annual_summary(text)
-        for _k, _v in _ann.items():
-            if _v is not None:
-                data[_k] = _v
-        logger.info("[GSTR-1] Annual-summary override applied (%d fields)", len(_ann))
-
-    # ── B2CL fallback for the "Total Invoice value" column layout ─────────────
-    # The generic B2CL extractor fails on this layout (QRMP monthly + summary),
-    # leaving B2CL = 0. Positionally read the 5A/5B row (skipping Invoice Value)
-    # ONLY when B2CL is currently missing — never disturbs a value already found.
-    if (not data.get("b2cl_taxable_value")) and re.search(r'Total\s+Invoice\s+value', text, re.IGNORECASE):
-        _b = _gstr1_annual_row(text.split('\n'), r"5A,?\s*5B\s*-\s*B2C|B2C\s*\(Large\)\s*Invoices")
-        if _b and len(_b) >= 4 and _b[2] > 0:
-            data["b2cl_taxable_value"] = _b[2]
-            data["b2cl_igst"]          = _b[3]
-            data["b2cl_cgst"]          = 0.0
-            data["b2cl_sgst"]          = 0.0
-            logger.info("[GSTR-1] B2CL filled from invoice-value layout: taxable=%s", _b[2])
+        _ov = ['b2cl_taxable_value', 'b2cl_igst', 'b2cl_cgst', 'b2cl_sgst',
+               'b2cs_taxable_value', 'b2cs_igst', 'b2cs_cgst', 'b2cs_sgst',
+               'cdnr_taxable', 'cdn_value', 'cdnr_igst', 'cdnr_cgst', 'cdnr_sgst',
+               'cdnur_taxable', 'cdnur_igst', 'cdnur_cgst', 'cdnur_sgst',
+               'export_taxable_value', 'nil_taxable_value', 'nil_exempt', 'nil_non_gst',
+               'total_taxable_value', 'total_igst', 'total_cgst', 'total_sgst']
+        if _gstr1_is_annual_summary(text):
+            _ov = ['b2b_taxable_value', 'b2b_igst', 'b2b_cgst', 'b2b_sgst'] + _ov
+        for _k in _ov:
+            if _ann.get(_k) is not None:
+                data[_k] = _ann[_k]
+        logger.info("[GSTR-1] Positional (invoice-value layout) override applied")
 
     # ── Structural Validation Checks ─────────────────────────────────────────
     total_b2b      = parse_amount(data.get("b2b_taxable_value"))
