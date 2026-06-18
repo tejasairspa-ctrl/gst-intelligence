@@ -2128,10 +2128,15 @@ def _gstr1_is_annual_summary(text: str) -> bool:
     return bool(re.search(r'system\s+generated\s+summary', text, re.IGNORECASE))
 
 
-def _gstr1_annual_nums(line: str) -> List[float]:
-    """Extract all numbers (Indian comma format, optional negative, decimals) from a line."""
+def _gstr1_decimals(line: str) -> List[float]:
+    """Extract only DECIMAL numbers (e.g. 76,06,03,613.40) from a line.
+
+    Decimal-only on purpose: it drops the integer record count (e.g. '3200') and
+    stray watermark digits, so positional column mapping stays aligned. Keeps
+    explicit zeros like '0.00'. Negatives (credit notes) supported.
+    """
     out = []
-    for m in re.findall(r'-?\d[\d,]*(?:\.\d+)?', line):
+    for m in re.findall(r'-?\d[\d,]*\.\d{1,2}', line):
         try:
             out.append(float(m.replace(',', '')))
         except ValueError:
@@ -2139,120 +2144,131 @@ def _gstr1_annual_nums(line: str) -> List[float]:
     return out
 
 
-def _gstr1_annual_row(lines: List[str], header_re: str) -> List[float]:
-    """Find a section by header and return the numbers of its data row.
+def _gstr1_annual_row(lines: List[str], anchor_re: str) -> List[float]:
+    """Find a section by its (table-number) anchor and return its data-row decimals.
 
-    Layout: <section header> / <'No. of Records ...' column header> / <data row>.
-    Watermark single-letter lines are skipped by requiring >= 3 numbers (most
-    data rows carry records + several monetary columns); falls back to >= 2.
+    Handles BOTH summary layouts:
+      • Old IFF: <anchor> / 'No. of Records Total Invoice value Total Taxable...' / <data>
+      • New:     <anchor> / 'Total <n> Invoice|Net Value|Note <values...>'
+    The caller applies a per-format offset to pick the Taxable column.
     """
     for i, ln in enumerate(lines):
-        if re.search(header_re, ln, re.IGNORECASE):
-            window = lines[i + 1: i + 10]
-            # Prefer the first line after the 'No. of Records' column header.
-            start = 0
-            for j, w in enumerate(window):
-                if re.search(r'No\.\s*of\s*Records', w, re.IGNORECASE):
-                    start = j + 1
-                    break
-            for w in window[start:]:
-                nums = _gstr1_annual_nums(w)
-                if len(nums) >= 3:
-                    return nums
-            for w in window[start:]:
-                nums = _gstr1_annual_nums(w)
-                if len(nums) >= 2:
-                    return nums
+        if not re.search(anchor_re, ln, re.IGNORECASE):
+            continue
+        window = lines[i + 1: i + 16]
+        # Old layout: data row sits right after the 'No. of Records' column header.
+        for j, w in enumerate(window):
+            if re.search(r'No\.\s*of\s*Records', w, re.IGNORECASE):
+                for w2 in window[j + 1:]:
+                    d = _gstr1_decimals(w2)
+                    if len(d) >= 1:
+                        return d
+                break
+        # New layout: data row is the 'Total ...' / 'Net Total ...' line.
+        for w in window:
+            if re.search(r'\b(?:Total|Net)\b', w, re.IGNORECASE):
+                d = _gstr1_decimals(w)
+                if len(d) >= 1:
+                    return d
+        # Fallback: first line carrying decimals.
+        for w in window:
+            d = _gstr1_decimals(w)
+            if len(d) >= 1:
+                return d
+        break
     return []
 
 
 def _parse_gstr1_annual_summary(text: str) -> Dict[str, Any]:
-    """Positional parser for the GSTR-1/IFF System-Generated-Summary format.
+    """Positional parser for the GSTR-1/IFF "System generated summary" formats.
 
-    Column order per section (after the record count):
-      B2B/B2CS/HSN : Invoice Value | Taxable | IGST | CGST | SGST | Cess
-      B2CL/Exports : Invoice Value | Taxable | IGST [| Cess]
-      CDNR         : Note Value    | Taxable | IGST | CGST | SGST | Cess
-      CDNUR        : Note Value    | Taxable | IGST | Cess
-      Nil (8)      : Nil amount | Exempt amount | Non-GST amount
-    The leading Invoice/Note Value column is skipped so 'Taxable' is read correctly.
+    Two known layouts:
+      A) old IFF — has a leading 'Total Invoice value' column before 'Total
+         Taxable value'  → Taxable is the 2nd decimal of the data row.
+      B) newer    — single 'Value (₹)' column (Value == Taxable)
+         → Taxable is the 1st decimal of the data row.
+    Sections are anchored on TABLE NUMBERS (4A, 5A, 6A, 6C, 7, 8, 9B, 12) so a
+    watermark mangling the label text (e.g. 'B2MB') can't break extraction.
     """
-    lines = [l for l in text.split('\n')]
+    lines = text.split('\n')
+    fmt_a = bool(re.search(r'Total\s+Invoice\s+value', text, re.IGNORECASE)
+                 and re.search(r'Total\s+Taxable\s+value', text, re.IGNORECASE))
+    t = 1 if fmt_a else 0   # index of the Taxable column among the data-row decimals
     out: Dict[str, Any] = {}
 
-    def grab(header_re, idx_map, after_count=2):
-        """idx_map: {field: position_in_nums}. after_count = index of Taxable col."""
-        nums = _gstr1_annual_row(lines, header_re)
-        if not nums:
-            return None
-        return nums
+    def col(d, idx):
+        return d[idx] if 0 <= idx < len(d) else None
 
-    # 4A,4B,4C,6B,6C - B2B  → [records, invoice, taxable, igst, cgst, sgst, cess]
-    n = _gstr1_annual_row(lines, r"4A.*B2B\s*Invoices|B2B\s*Invoices")
-    if n and len(n) >= 4:
-        out["b2b_taxable_value"] = n[2]
-        out["b2b_igst"] = n[3]
-        if len(n) > 4: out["b2b_cgst"] = n[4]
-        if len(n) > 5: out["b2b_sgst"] = n[5]
+    # 4A B2B Regular
+    d = _gstr1_annual_row(lines, r"\b4A\b\s*[-–,]")
+    if len(d) > t:
+        out["b2b_taxable_value"] = col(d, t)
+        out["b2b_igst"]  = col(d, t + 1)
+        out["b2b_cgst"]  = col(d, t + 2)
+        out["b2b_sgst"]  = col(d, t + 3)
 
-    # 5A,5B - B2C (Large) → [records, invoice, taxable, igst, cess]
-    n = _gstr1_annual_row(lines, r"5A,?\s*5B\s*-\s*B2C|B2C\s*\(Large\)")
-    if n and len(n) >= 4:
-        out["b2cl_taxable_value"] = n[2]
-        out["b2cl_igst"] = n[3]
+    # 5A/5B B2C (Large)
+    d = _gstr1_annual_row(lines, r"\b5A\b\s*[-–,]")
+    if len(d) > t:
+        out["b2cl_taxable_value"] = col(d, t)
+        out["b2cl_igst"] = col(d, t + 1)
         out["b2cl_cgst"] = 0.0
         out["b2cl_sgst"] = 0.0
 
-    # 7 - B2C (Others) = B2CS → [records, invoice, taxable, igst, cgst, sgst, cess]
-    n = _gstr1_annual_row(lines, r"7\s*-\s*B2C\s*\(Others\)")
-    if n and len(n) >= 4:
-        out["b2cs_taxable_value"] = n[2]
-        out["b2cs_igst"] = n[3]
-        if len(n) > 4: out["b2cs_cgst"] = n[4]
-        if len(n) > 5: out["b2cs_sgst"] = n[5]
+    # 7 B2C (Others) = B2CS
+    d = _gstr1_annual_row(lines, r"\b7\s*[-–]")
+    if len(d) > t:
+        out["b2cs_taxable_value"] = col(d, t)
+        out["b2cs_igst"] = col(d, t + 1)
+        out["b2cs_cgst"] = col(d, t + 2)
+        out["b2cs_sgst"] = col(d, t + 3)
 
-    # 9B - CDNR (Registered) → [records, note, taxable, igst, cgst, sgst, cess]
-    n = _gstr1_annual_row(lines, r"9B.*Credit\s*/?\s*Debit\s*Notes?\s*\(\s*Registered\s*\)")
-    if n and len(n) >= 4:
-        out["cdnr_taxable"] = n[2]; out["cdn_value"] = n[2]
-        out["cdnr_igst"] = n[3]
-        if len(n) > 4: out["cdnr_cgst"] = n[4]
-        if len(n) > 5: out["cdnr_sgst"] = n[5]
+    # 9B CDNR (Registered) — has a leading Note Value column ONLY in layout A
+    d = _gstr1_annual_row(lines, r"9B.*\(\s*Registered\s*\)|9B.*[-–]\s*CDNR\b")
+    if len(d) > t:
+        out["cdnr_taxable"] = col(d, t); out["cdn_value"] = col(d, t)
+        out["cdnr_igst"] = col(d, t + 1)
+        out["cdnr_cgst"] = col(d, t + 2)
+        out["cdnr_sgst"] = col(d, t + 3)
 
-    # 9B - CDNUR (Unregistered) → [records, note, taxable, igst, cess]
-    n = _gstr1_annual_row(lines, r"9B.*Credit\s*/?\s*Debit\s*Notes?\s*\(\s*Unregistered\s*\)")
-    if n and len(n) >= 4:
-        out["cdnur_taxable"] = n[2]
-        out["cdnur_igst"] = n[3]
+    # 9B CDNUR (Unregistered)
+    d = _gstr1_annual_row(lines, r"9B.*\(\s*Unregistered\s*\)|9B.*CDNUR")
+    if len(d) > t:
+        out["cdnur_taxable"] = col(d, t)
+        out["cdnur_igst"] = col(d, t + 1)
         out["cdnur_cgst"] = 0.0
         out["cdnur_sgst"] = 0.0
 
-    # 6A - Exports → [records, invoice, taxable, igst]
-    n = _gstr1_annual_row(lines, r"6A\s*-\s*Exports")
-    if n and len(n) >= 3:
-        out["export_taxable_value"] = n[2]
+    # 6A Exports
+    d = _gstr1_annual_row(lines, r"\b6A\b\s*[-–]")
+    if len(d) > t:
+        out["export_taxable_value"] = col(d, t)
 
-    # 8 - Nil/Exempt/Non-GST → [records, nil, exempt, nongst]
-    n = _gstr1_annual_row(lines, r"8\s*-\s*Nil")
-    if n and len(n) >= 4:
-        out["nil_taxable_value"] = n[1]
-        out["nil_exempt"] = n[2]
-        out["nil_non_gst"] = n[3]
+    # 6C Deemed Exports
+    d = _gstr1_annual_row(lines, r"\b6C\b\s*[-–]")
+    if len(d) > t:
+        out["de_taxable"] = col(d, t)
 
-    # 12 - HSN summary = authoritative total turnover
-    #      → [records, invoice, taxable, igst, cgst, sgst, cess]
-    n = _gstr1_annual_row(lines, r"12\s*-\s*HSN")
-    if n and len(n) >= 4:
-        out["total_taxable_value"] = n[2]
-        out["total_igst"] = n[3]
-        if len(n) > 4: out["total_cgst"] = n[4]
-        if len(n) > 5: out["total_sgst"] = n[5]
+    # 8 Nil/Exempt/Non-GST — no leading value column in either layout
+    d = _gstr1_annual_row(lines, r"\b8\s*[-–].*Nil")
+    if d:
+        out["nil_taxable_value"] = col(d, 0)
+        out["nil_exempt"]  = col(d, 1) if len(d) > 1 else 0.0
+        out["nil_non_gst"] = col(d, 2) if len(d) > 2 else 0.0
 
-    logger.info("[GSTR-1][annual-summary] b2b=%s b2cl=%s b2cs=%s cdnr=%s cdnur=%s total=%s",
-                out.get("b2b_taxable_value"), out.get("b2cl_taxable_value"),
-                out.get("b2cs_taxable_value"), out.get("cdnr_taxable"),
-                out.get("cdnur_taxable"), out.get("total_taxable_value"))
-    return out
+    # 12 HSN summary = authoritative total turnover
+    d = _gstr1_annual_row(lines, r"\b12\s*[-–].*HSN")
+    if len(d) > t:
+        out["total_taxable_value"] = col(d, t)
+        out["total_igst"] = col(d, t + 1)
+        out["total_cgst"] = col(d, t + 2)
+        out["total_sgst"] = col(d, t + 3)
+
+    logger.info("[GSTR-1][annual-summary fmt=%s] b2b=%s b2cl=%s b2cs=%s cdnr=%s total=%s",
+                "A" if fmt_a else "B", out.get("b2b_taxable_value"),
+                out.get("b2cl_taxable_value"), out.get("b2cs_taxable_value"),
+                out.get("cdnr_taxable"), out.get("total_taxable_value"))
+    return {k: v for k, v in out.items() if v is not None}
 
 
 # ── GSTR-1 Parser (TEXT-BASED, SECTION-AWARE) ─────────────────────────────────
@@ -3056,14 +3072,20 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
     # is the source of truth for those sections. B2B is EXCLUDED on non-summary
     # files: the positional B2B can fail on QRMP monthlies, and the generic B2B
     # already reconciles there (positional B2B is only trusted in the annual).
+    # Fire the positional reader for (a) the old two-column "Total Invoice value"
+    # layout used by QRMP monthly returns, and (b) ANY "System generated summary"
+    # (annual) — the positional reader is now format-aware (handles both the
+    # invoice/taxable and the single-Value layouts) and table-number anchored, so
+    # it is robust to watermarks that mangle section labels (e.g. 'B2MB').
     _has_value_col = bool(re.search(r'Total\s+(?:Invoice|Note)\s+[Vv]alue', text))
-    if _gstr1_is_annual_summary(text) or _has_value_col:
+    if _has_value_col or _gstr1_is_annual_summary(text):
         _ann = _parse_gstr1_annual_summary(text)
         _ov = ['b2cl_taxable_value', 'b2cl_igst', 'b2cl_cgst', 'b2cl_sgst',
                'b2cs_taxable_value', 'b2cs_igst', 'b2cs_cgst', 'b2cs_sgst',
                'cdnr_taxable', 'cdn_value', 'cdnr_igst', 'cdnr_cgst', 'cdnr_sgst',
                'cdnur_taxable', 'cdnur_igst', 'cdnur_cgst', 'cdnur_sgst',
-               'export_taxable_value', 'nil_taxable_value', 'nil_exempt', 'nil_non_gst',
+               'export_taxable_value', 'de_taxable',
+               'nil_taxable_value', 'nil_exempt', 'nil_non_gst',
                'total_taxable_value', 'total_igst', 'total_cgst', 'total_sgst']
         if _gstr1_is_annual_summary(text):
             _ov = ['b2b_taxable_value', 'b2b_igst', 'b2b_cgst', 'b2b_sgst'] + _ov
