@@ -1775,11 +1775,15 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             r"7\s*[-–]\s*B2C.*Others",
             r"7\s*[-–]\s*B2C\s*\(Others\)",
             r"B2C.*Small|B2CS",
-            end_patterns=[r"9B\s*[-–]", r"HSN", r"Credit.*Note", r"8\s*[-–]"],
+            # Anchor the section-8 boundary to "8 - Nil" — a bare r"8\s*[-–]"
+            # matches "8 -" INSIDE decimals (e.g. "1,23,062.28 -50,815") and
+            # truncates the data row, dropping the IGST/CGST heads.
+            end_patterns=[r"9B\s*[-–]", r"HSN", r"Credit.*Note", r"8\s*[-–]\s*Nil"],
             max_chars=3000,
         )
         if sec_b2cs:
-            nums = _gstr1_total_nums(sec_b2cs)
+            # Read the data row directly (robust to small/mixed-sign heads).
+            nums = _gstr1_cdn_row(sec_b2cs) or _gstr1_total_nums(sec_b2cs)
             data = _gstr1_map_cols(nums)
             if data["taxable"] > 0:
                 sections["b2cs"] = data
