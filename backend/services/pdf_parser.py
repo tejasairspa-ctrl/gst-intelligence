@@ -1681,6 +1681,21 @@ def _nil_row_amount(monetary_strs: List[str]) -> float:
         return amounts[0]
 
 
+def _gstr1_cdn_row(section_text: str) -> List[str]:
+    """Return the decimals of a CDN section's grand-total data row.
+
+    The 'Net off / Net Total' row holds every head (taxable, IGST, CGST, SGST,
+    Cess) on ONE line, so reading that line directly is more robust than the
+    300-char window heuristic in _gstr1_total_nums (which can clip a small head
+    like a ₹647 CGST). Returns the first line carrying >= 2 decimal numbers.
+    """
+    for ln in section_text.split('\n'):
+        d = _gstr1_extract_nums(ln)
+        if len(d) >= 2:
+            return d
+    return []
+
+
 def _gstr1_total_nums(section_text: str) -> List[str]:
     """
     Find the Grand Total / Total row in a section and return its decimal numbers.
@@ -1910,9 +1925,11 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             # distinguishes it from "(Unregistered)" without a fragile lookahead.
             r"Credit\s*/?\s*Debit\s*Notes?\s*\(\s*Registered\s*\)",
             r"Credit.*Debit.*Notes.*Registered(?!.*Unregistered)",
+            # NOTE: do NOT use loose r"10\s*[-–]" / r"11\s*[-–]" here — they match
+            # "10 -" inside decimals like "647.10 -647.10" and truncate the data
+            # row mid-line. 9B is bounded by 9C / the Unregistered block / HSN.
             end_patterns=[r"9C\s*[-–]", r"9B\s*[-–].*Unregistered",
-                          r"\(\s*Unregistered\s*\)",
-                          r"10\s*[-–]", r"11\s*[-–]", r"HSN", r"Advance",
+                          r"\(\s*Unregistered\s*\)", r"HSN", r"Advance",
                           r"Unregistered"],
             max_chars=3000,
         )
@@ -1924,7 +1941,9 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             # column before "Total Taxable value". Skip it so the amount we keep is
             # the TAXABLE base (consistent with the newer format's "Value" column).
             _note_col = bool(re.search(r'note\s*value', sec_cdnr_clean, re.IGNORECASE))
-            cdnr_nums = _gstr1_total_nums(sec_cdnr_clean)
+            # Read the data row directly (robust to small heads); fall back to the
+            # window scan only if no single-line row is found.
+            cdnr_nums = _gstr1_cdn_row(sec_cdnr_clean) or _gstr1_total_nums(sec_cdnr_clean)
             if _note_col and len(cdnr_nums) >= 2:
                 cdnr_nums = cdnr_nums[1:]   # drop Note value → first value becomes Taxable
             cdnr_data = _gstr1_map_cdn_cols(cdnr_nums)   # CDN-specific: 3-val=[taxable,IGST,CGST]
