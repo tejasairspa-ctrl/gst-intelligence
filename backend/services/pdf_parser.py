@@ -1649,17 +1649,12 @@ def _gstr1_map_cdn_cols(nums: List[str]) -> Dict[str, float]:
         elif cgst_abs == 0 and sgst_abs > 0:
             result["cgst"] = result["sgst"]
 
-    # ── Preserve the net sign from the PDF ───────────────────────────────────
-    # The row is "Net off (Debit notes − Credit notes)": usually negative (net
-    # credit notes), but legitimately POSITIVE in a net-debit month. Align the
-    # tax heads to the sign of the taxable net rather than forcing everything
-    # negative (which double-counts a positive month into the yearly total).
-    _tx = result["taxable"]
-    if _tx != 0:
-        _sign = 1.0 if _tx > 0 else -1.0
-        for k in ("igst", "cgst", "sgst"):
-            result[k] = _sign * abs(result[k])
-
+    # ── Preserve each head's own net sign from the PDF ───────────────────────
+    # The row is "Net off (Debit notes − Credit notes)". Each head nets
+    # independently: a month can be net-credit overall (negative taxable) yet
+    # net-debit on inter-state (positive IGST), or vice-versa. Do NOT force a
+    # uniform sign — keep the signs exactly as reported so the columns reconcile
+    # to the annual. (Old all-negative layouts are already negative, so unaffected.)
     return result
 
 
