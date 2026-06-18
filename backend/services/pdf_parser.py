@@ -1649,10 +1649,16 @@ def _gstr1_map_cdn_cols(nums: List[str]) -> Dict[str, float]:
         elif cgst_abs == 0 and sgst_abs > 0:
             result["cgst"] = result["sgst"]
 
-    # ── All CDN values must be NEGATIVE ──────────────────────────────────────
-    for k in result:
-        if result[k] > 0:
-            result[k] = -result[k]
+    # ── Preserve the net sign from the PDF ───────────────────────────────────
+    # The row is "Net off (Debit notes − Credit notes)": usually negative (net
+    # credit notes), but legitimately POSITIVE in a net-debit month. Align the
+    # tax heads to the sign of the taxable net rather than forcing everything
+    # negative (which double-counts a positive month into the yearly total).
+    _tx = result["taxable"]
+    if _tx != 0:
+        _sign = 1.0 if _tx > 0 else -1.0
+        for k in ("igst", "cgst", "sgst"):
+            result[k] = _sign * abs(result[k])
 
     return result
 
