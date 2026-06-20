@@ -736,7 +736,9 @@ def _gstr3b_ratios(ext: dict) -> list:
 
 def _gstr2b_stubs() -> list:
     def stub(sl, dgarm, cat, name, formula, desc):
-        return _r(sl, dgarm, cat, name, None, "%", formula, "Requires GSTR-2B data", desc, "UNKNOWN")
+        r = _r(sl, dgarm, cat, name, None, "%", formula, "Requires GSTR-2B data", desc, "UNKNOWN")
+        r["status"] = "Requires GSTR-2B"
+        return r
 
     return [
         stub(9,  "DGARM #14", "Inward",
@@ -755,6 +757,114 @@ def _gstr2b_stubs() -> list:
              "RCM Liability: GSTR-2B vs GSTR-3B",
              "RCM Liability as per GSTR-2B ÷ RCM Paid [Table 3.1(d), GSTR-3B] × 100",
              "Ratio above 100% indicates RCM liability in GSTR-2B exceeds what was paid in GSTR-3B — potential under-payment of reverse charge tax."),
+    ]
+
+
+# ── Framework completeness: manual / external-data ratios ─────────────────────
+# The DGARM v2 framework defines 57 ratios. ~30 are auto-computable from the
+# GSTR-1/GSTR-3B PDFs (the sections above) and 4 more become live once GSTR-2B
+# is uploaded (_gstr2b_stubs). The remaining ratios below require data that is
+# simply not present in a GSTR-1 or GSTR-3B return (ITR, ITC-04, customs/
+# shipping-bill data, refund records, DGARM red-flag reports) or call for manual
+# document sampling. They are emitted with value=None and a clear `status` so the
+# report maps 1:1 to the full 57-ratio framework instead of silently dropping them.
+
+def _framework_manual_stubs() -> list:
+    def stub(sl, dgarm, cat, name, formula, status, desc):
+        r = _r(sl, dgarm, cat, name, None, "", formula, status, desc, "UNKNOWN")
+        r["status"] = status
+        return r
+
+    REQ_CUSTOMS = "Requires Customs/ICEGATE data"
+    REQ_ITR     = "Requires Income-Tax Return"
+    REQ_ITC04   = "Requires ITC-04 return"
+    REQ_REFUND  = "Requires refund (RFD) data"
+    REQ_DGARM   = "Requires DGARM red-flag report"
+    REQ_EXT     = "Requires external/portal data"
+    MANUAL      = "Manual verification"
+
+    return [
+        stub(4,  "DGARM #20", "Exports", "Export (Goods) Taxable vs Shipping Bill IGST",
+             "Export taxable value [Table 6A, GSTR-1] vs IGST value in shipping-bill data",
+             REQ_CUSTOMS, "Compares declared export value against customs shipping-bill data."),
+        stub(7,  "DGARM #2", "Import", "Import IGST Paid vs ITC Availed",
+             "IGST paid at import vs ITC availed on import of goods",
+             REQ_CUSTOMS, "Flags ITC on imports exceeding IGST actually paid at customs."),
+        stub(8,  "DGARM #13", "Input Output", "SEZ & Non-SEZ Input-Output Ratio",
+             "SEZ vs Non-SEZ input-output ratio (verified separately)",
+             MANUAL, "Detects diversion of duty-free inputs to DTA units; needs unit-wise input data."),
+        stub(15, "DGARM #19", "Inward", "ITC Reversal for Nil/Exempt Supplies",
+             "Proper ITC reversal / non-availment for Nil/Exempt supplies",
+             MANUAL, "Verifies Rule 42/43 reversal against exempt turnover via document sampling."),
+        stub(19, "Derived", "Inward", "Common ITC Reversal Ratio (Rules 42/43)",
+             "Common ITC reversed (Rules 42 & 43) ÷ Total ITC availed",
+             MANUAL, "Abnormally low common-credit reversal vs exempt supplies warrants review."),
+        stub(21, "Derived", "Inward", "High ITC from Risky Suppliers",
+             "% of ITC availed from newly-registered / flagged / cancelled suppliers",
+             REQ_EXT, "Needs supplier risk-profile data from the portal/DGARM."),
+        stub(22, "Derived", "Inward", "Delayed Filings with High ITC",
+             "Pattern of late filing in periods with large ITC claims",
+             REQ_EXT, "Needs return filing-date metadata."),
+        stub(23, "DGARM #34", "IT Returns", "Negligible Income Tax vs GSTR-3B Turnover",
+             "Income-tax paid (ITR) vs turnover declared in GSTR-3B",
+             REQ_ITR, "Substantial GST turnover with negligible income tax warrants check."),
+        stub(24, "DGARM #29", "ITC-04", "ITC-04 Job-work Turnover vs GSTR-3B Turnover",
+             "Taxable turnover [Table 4, ITC-04] ÷ Total taxable turnover [GSTR-3B]",
+             REQ_ITC04, "Needs the ITC-04 job-work return."),
+        stub(25, "DGARM #11", "Late Fee & Interest", "Late Fee & Interest on Late Filing",
+             "Penalty/late-fee and interest for late-filed returns",
+             MANUAL, "Verify late-fee and interest discharge for delayed returns."),
+        stub(26, "DGARM #12", "Late Fee & Interest", "Liability/Penalty for Non-filed Periods",
+             "Correct liability + penalty + interest for non-filed periods",
+             MANUAL, "Assess liability for periods where returns were not filed."),
+        stub(28, "DGARM #3", "NIL/Exempt", "NIL/Exempt Supply Correctness",
+             "Correctness of conditions for NIL/Exempt supplies",
+             MANUAL, "Sample contracts / supply orders to confirm exemption eligibility."),
+        stub(33, "DGARM #33", "IT Returns", "GSTR-3B Turnover vs ITR Turnover",
+             "Turnover in GSTR-3B vs turnover in ITR for the same period",
+             REQ_ITR, "Reconcile GST turnover against income-tax return turnover."),
+        stub(36, "Derived", "Outward", "TDS Credits Accumulation",
+             "Comparison of accumulation of TDS credits",
+             REQ_EXT, "Needs TDS credit ledger data."),
+        stub(37, "Derived", "Outward", "HSN/SAC Volatility Analysis",
+             "Consistency of HSN/SAC codes reported for outward supplies",
+             MANUAL, "Frequent HSN/SAC changes may indicate deliberate misclassification."),
+        stub(38, "Derived", "Outward", "Frequency of Amendments",
+             "Number & value of amendments made in GSTR-1",
+             REQ_EXT, "High amendment frequency reducing liability is a risk indicator."),
+        stub(40, "Derived", "Outward", "Circular Transactions",
+             "Outward and inward both reported with the same counter-party",
+             REQ_EXT, "Indicates fake billing or shifting of liability."),
+        stub(46, "DGARM #5", "RCM", "Total Inward Supplies Liable to RCM (Correctness)",
+             "Correctness of total inward supplies liable to reverse charge",
+             MANUAL, "Sample high-value invoices for RCM applicability."),
+        stub(48, "DGARM #16", "RCM", "Low RCM Payment 3.1(d) vs Import-Services ITC",
+             "RCM paid [Table 3.1(d), GSTR-3B] vs ITC on import of services / other RCM",
+             MANUAL, "Low RCM payment relative to RCM ITC taken warrants review."),
+        stub(50, "DGARM #25", "Refund", "IGST Refund (Risky Exporters)",
+             "Amount of IGST refund claimed",
+             REQ_REFUND, "High-value IGST refund claims by risky exporters."),
+        stub(51, "DGARM #10", "NIL/Exempt", "Non-GST Supply Invoice Verification",
+             "Sample Non-GST supply invoices not liable to GST",
+             MANUAL, "Confirm high-value Non-GST purchases are genuinely outside GST."),
+        stub(52, "DGARM #21", "Exports", "SEZ Supplies Correctness",
+             "Correctness of zero-rated supplies made to SEZ",
+             MANUAL, "Higher-than-trend SEZ clearance needs verification."),
+        stub(53, "DGARM #24", "IT Returns", "Linked GSTINs of Same PAN",
+             "Risk from multiple GSTINs registered under the same PAN",
+             REQ_EXT, "Check supply/purchase transactions across linked GSTINs."),
+        stub(54, "DGARM #26", "Exports", "LUT Export Refund (Risky Exporters)",
+             "Amount of LUT export refund claimed",
+             REQ_REFUND, "High-value LUT-export refund claims by risky exporters."),
+        stub(55, "DGARM #27", "Exports", "Inverted Duty Refund (Risky Exporters)",
+             "Refund claimed due to inverted duty structure",
+             REQ_REFUND, "Inverted-duty refunds flagged for risky exporters."),
+        stub(56, "DGARM #28", "Others", "Risky Taxpayer in DGARM Red Flag Report",
+             "Presence in DGARM Red Flag Report Nos. 2,3,4 & 5",
+             REQ_DGARM, "Cross-check against DGARM red-flag reports."),
+        stub(57, "DGARM #30", "Others", "Repeat Risk Selection (Prior Year)",
+             "Whether the taxpayer was selected on risk criteria last year",
+             MANUAL, "Re-examine the same risk in the current audit period."),
     ]
 
 
@@ -1071,6 +1181,7 @@ def compute_risk_ratios(store) -> dict:
         "cross":            _strip(_avg_ratios(cross_ratios_all)),
         "multiperiod":      _strip(monthly_ratios),
         "gstr2b":           _strip(_gstr2b_stubs()),
+        "framework_manual": _strip(_framework_manual_stubs()),
         "trend":            trend_data,
         "periods_gstr1":    gstr1_periods_used,
         "periods_gstr3b":   gstr3b_periods_used,

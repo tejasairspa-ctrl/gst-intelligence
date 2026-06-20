@@ -1797,6 +1797,7 @@ def risk_excel():
         ("Cross-Form Risk Ratios",          risk_data.get("cross", [])),
         ("Multi-Period Trend Risk",         risk_data.get("multiperiod", [])),
         ("GSTR-2B Ratios (Pending Data)",   risk_data.get("gstr2b", [])),
+        ("Manual / External-Data Ratios (Not Auto-Computed)", risk_data.get("framework_manual", [])),
     ]
 
     for sec_name, ratios in sections:
@@ -1816,7 +1817,10 @@ def risk_excel():
             level = r.get("risk_level", "UNKNOWN")
             level_color = {"LOW": FG_LOW, "MEDIUM": FG_MED, "HIGH": FG_HIGH}.get(level, FG_UNK)
 
-            val_str = f"{r['value']}{r.get('unit','')}" if r.get("available") and r["value"] is not None else "N/A"
+            if r.get("available") and r["value"] is not None:
+                val_str = f"{r['value']}{r.get('unit','')}"
+            else:
+                val_str = r.get("status") or "N/A"
             anom_str = "⚠ YES" if r.get("anomaly") else "—"
 
             row_data = [
