@@ -1742,129 +1742,26 @@ def mom_9_excel():
 
 @export_bp.get("/export/risk/excel")
 def risk_excel():
-    """Export risk ratios workbook — dark professional theme."""
+    """Export the linked, auditable risk-ratio workbook.
+
+    Every ratio is a live Excel formula pointing back to the GSTR-1 / GSTR-3B
+    source cells (which are themselves =SUM of the monthly figures), so nothing
+    is hard-coded and each value traces to its origin. See
+    services/risk_workbook.py for the sheet structure.
+    """
     if not store.files:
         return jsonify(error="No files in session"), 404
-
-    try:
-        risk_data = compute_risk_ratios(store)
-    except Exception as exc:
-        logger.exception("Risk export failed: %s", exc)
-        return jsonify(error=str(exc)), 500
-
-    # ── Build workbook ────────────────────────────────────────────────────────
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Risk Ratios"
-    ws.sheet_view.showGridLines = False
-
-    def _fill(hex_c):
-        return PatternFill("solid", fgColor=hex_c)
-
-    def _font(bold=False, italic=False, color="FFFFFF", size=9):
-        return Font(bold=bold, italic=italic, color=color, size=size, name="Calibri")
-
-    BG_TITLE = "0A1929"; BG_HDR = "1C3557"; BG_CAT = "172B45"
-    BG_ROW1  = "0D1F2D"; BG_ROW2 = "0F2538"
-    FG_LOW   = "34D399"; FG_MED = "FBBF24"; FG_HIGH = "F87171"; FG_UNK = "94A3B8"
-    FG_ANO   = "FB923C"
-
-    COLS = ["Category", "Ratio Name", "Value", "Unit", "Formula", "Risk Level", "Anomaly", "Benchmark", "Description"]
-    col_widths = [22, 38, 12, 8, 48, 12, 10, 35, 55]
-
-    # Title
-    ws.merge_cells("A1:I1")
-    t = ws["A1"]
-    t.value     = f"GST Risk Intelligence Report  |  Generated: {datetime.now().strftime('%d %b %Y %H:%M')}"
-    t.fill      = _fill(BG_TITLE)
-    t.font      = _font(bold=True, color="5BA3D9", size=11)
-    t.alignment = Alignment(horizontal="left", vertical="center", indent=2)
-    ws.row_dimensions[1].height = 28
-
-    # Headers
-    for ci, (hdr, w) in enumerate(zip(COLS, col_widths), 1):
-        c = ws.cell(2, ci, hdr)
-        c.fill      = _fill(BG_HDR)
-        c.font      = _font(bold=True, color="B8D0F0", size=9)
-        c.alignment = Alignment(horizontal="center", vertical="center")
-        ws.column_dimensions[get_column_letter(ci)].width = w
-    ws.row_dimensions[2].height = 18
-
-    row_num = 3
-    sections = [
-        ("GSTR-1 Risk Ratios",              risk_data.get("gstr1", [])),
-        ("GSTR-3B Risk Ratios",             risk_data.get("gstr3b", [])),
-        ("Cross-Form Risk Ratios",          risk_data.get("cross", [])),
-        ("Multi-Period Trend Risk",         risk_data.get("multiperiod", [])),
-        ("GSTR-2B Ratios (Pending Data)",   risk_data.get("gstr2b", [])),
-        ("Manual / External-Data Ratios (Not Auto-Computed)", risk_data.get("framework_manual", [])),
-    ]
-
-    for sec_name, ratios in sections:
-        if not ratios:
-            continue
-        # Category separator
-        ws.merge_cells(f"A{row_num}:I{row_num}")
-        sc = ws.cell(row_num, 1, f"  {sec_name}")
-        sc.fill      = _fill(BG_CAT)
-        sc.font      = _font(bold=True, color="60A5FA", size=9)
-        sc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-        ws.row_dimensions[row_num].height = 16
-        row_num += 1
-
-        for i, r in enumerate(ratios):
-            bg    = BG_ROW1 if i % 2 == 0 else BG_ROW2
-            level = r.get("risk_level", "UNKNOWN")
-            level_color = {"LOW": FG_LOW, "MEDIUM": FG_MED, "HIGH": FG_HIGH}.get(level, FG_UNK)
-
-            if r.get("available") and r["value"] is not None:
-                val_str = f"{r['value']}{r.get('unit','')}"
-            else:
-                val_str = r.get("status") or "N/A"
-            anom_str = "⚠ YES" if r.get("anomaly") else "—"
-
-            row_data = [
-                r.get("category", ""),
-                r.get("name", ""),
-                val_str,
-                r.get("unit", ""),
-                r.get("formula", ""),
-                level,
-                anom_str,
-                r.get("benchmark", ""),
-                r.get("description", ""),
-            ]
-            for ci, val in enumerate(row_data, 1):
-                cell = ws.cell(row_num, ci, val)
-                cell.fill      = _fill(bg)
-                cell.alignment = Alignment(horizontal="left" if ci > 2 else "left",
-                                           vertical="center", wrap_text=(ci == 9))
-                if ci == 6:   # Risk Level
-                    cell.font = _font(bold=True, color=level_color, size=9)
-                elif ci == 7 and r.get("anomaly"):
-                    cell.font = _font(bold=True, color=FG_ANO, size=9)
-                else:
-                    cell.font = _font(color="CBD5E1", size=8)
-
-            ws.row_dimensions[row_num].height = 15
-            row_num += 1
-
-    # Linked periods
-    ws2 = wb.create_sheet("Linked Periods")
-    ws2.sheet_view.showGridLines = False
-    ws2["A1"] = "GSTR-1 Periods Analysed"
-    ws2["A1"].font = _font(bold=True, color="60A5FA", size=10)
-    ws2["B1"] = "GSTR-3B Periods Analysed"
-    ws2["B1"].font = _font(bold=True, color="60A5FA", size=10)
-    for row_i, p in enumerate(risk_data.get("periods_gstr1", []), 2):
-        ws2.cell(row_i, 1, p).font = _font(color="CBD5E1", size=9)
-    for row_i, p in enumerate(risk_data.get("periods_gstr3b", []), 2):
-        ws2.cell(row_i, 2, p).font = _font(color="CBD5E1", size=9)
 
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     name = f"GST_Risk_Report_{ts}.xlsx"
     out  = os.path.join("output", name)
-    wb.save(out)
+
+    try:
+        from services.risk_workbook import build_linked_workbook
+        build_linked_workbook(store, out)
+    except Exception as exc:
+        logger.exception("Risk export failed: %s", exc)
+        return jsonify(error=str(exc)), 500
 
     return send_file(out, as_attachment=True, download_name=name,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
