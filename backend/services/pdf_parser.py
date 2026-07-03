@@ -550,7 +550,9 @@ def parse_gstr3b(text: str, tables: List[List[List]]) -> Dict[str, Any]:
                     pass
 
         # (b) Zero rated — taxable value + IGST
-        line_b = _find_line_with_labels(sec31, r"\(b\)", r"zero")
+        # NOTE: allow optional whitespace inside the label parens — some portal
+        # PDFs render "(b )" / "(c )" / "(d )" with a stray space (see 3.1(c) below).
+        line_b = _find_line_with_labels(sec31, r"\(\s*b\s*\)", r"zero")
         if line_b is None:
             line_b = _find_line_with_labels(sec31, r"zero.?rated.*supplies")
         if line_b:
@@ -562,16 +564,23 @@ def parse_gstr3b(text: str, tables: List[List[List]]) -> Dict[str, Any]:
                 logger.info("[GSTR-3B] Zero-rated taxable=%s igst=%s", nums[0], data["s31b_igst"])
 
         # (c) Nil rated / exempt
-        line_c = _find_line_with_labels(sec31, r"\(c\)", r"nil|exempt")
+        # Tolerate "(c )" (stray space). CRITICAL: the fallback must NOT match row
+        # (a), whose label reads "...(other than zero rated, nil rated and exempted)"
+        # — matching it here copies 3.1(a)'s taxable value straight into 3.1(c).
+        line_c = _find_line_with_labels(sec31, r"\(\s*c\s*\)", r"nil|exempt")
         if line_c is None:
-            line_c = _find_line_with_labels(sec31, r"nil rated|exempted")
+            for _ln in sec31.split("\n"):
+                if (re.search(r"nil\s*rated|exempt", _ln, re.IGNORECASE)
+                        and not re.search(r"other\s+than|\(\s*a\s*\)", _ln, re.IGNORECASE)):
+                    line_c = _ln
+                    break
         if line_c:
             nums = _numbers_from_line(line_c)
             if nums:
                 data["nil_rated_sales"] = nums[0]
 
         # (d) Inward supplies liable to reverse charge (RCM)
-        line_d = _find_line_with_labels(sec31, r"\(d\)", r"inward|reverse")
+        line_d = _find_line_with_labels(sec31, r"\(\s*d\s*\)", r"inward|reverse")
         if line_d is None:
             line_d = _find_line_with_labels(sec31, r"inward supplies.*liable|reverse charge")
         if line_d:
