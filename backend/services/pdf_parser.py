@@ -2212,6 +2212,104 @@ def _gstr1_annual_row(lines: List[str], anchor_re: str) -> List[float]:
     return []
 
 
+# Signature of the OLD compact GSTR-1 summary layout (≈FY 2020-21 / 2021-22 portal
+# PDFs): B2B, SEZ and Deemed Export are collapsed into ONE combined row.
+_LEGACY_A_SIG = re.compile(r'4A,\s*4B,\s*6B,\s*6C\s*[-–]\s*B2B', re.IGNORECASE)
+
+
+def _parse_gstr1_legacy_summary(text: str) -> Dict[str, Any]:
+    """Isolated reader for the OLD compact GSTR-1 summary layout (FY≈2020-21/21-22).
+
+    Every table is one header line followed by a single data row shaped:
+        <records> <invoice-value|NA> <taxable> <igst> [<cgst> <sgst>] <cess>
+    so the TAXABLE amount is ALWAYS the 3rd whitespace token. This is robust to
+    (a) integer-valued columns that the decimal-only annual reader drops (which
+    shifted B2CL onto its IGST), and (b) a literal "NA" in the invoice column
+    (which shifted the HSN total onto its IGST on FY21-22).
+
+    B2B/SEZ/DE are physically merged in this layout and cannot be split — the
+    combined taxable is stored in b2b_taxable_value with legacy_combined_b2b=True
+    so B2B-level risk ratios can exclude these years. Table 12 (HSN) total is the
+    authoritative turnover and reconciles exactly.
+    """
+    def _num(tok):
+        try:
+            return float(tok.replace(',', ''))
+        except (ValueError, AttributeError):
+            return None
+
+    def _row(label):
+        i = text.find(label)
+        if i < 0:
+            return None
+        for ln in text[i + len(label): i + 600].split('\n'):
+            s = ln.strip()
+            if not s or 'IP Address' in s:
+                continue
+            if re.match(r'^[A-Za-z]$', s):                 # watermark letter (L/A/N/I/F)
+                continue
+            if re.search(r'No\.\s*of|Total\s+(?:Invoice|Note|Nil|Exempt|Integrated|Records)'
+                         r'|Description|Type', s, re.IGNORECASE):
+                continue
+            toks = s.split()
+            if toks and re.match(r'^\d+$', toks[0]) and len(toks) >= 2:
+                return toks
+        return None
+
+    def _tax(label, idx=2):
+        t = _row(label)
+        return _num(t[idx]) if t and len(t) > idx else None
+
+    out: Dict[str, Any] = {}
+    comb = _row(r"4A, 4B, 6B, 6C")                          # B2B + SEZ + DE (merged)
+    if comb and len(comb) > 2:
+        out["b2b_taxable_value"] = _num(comb[2])
+        out["b2b_igst"] = _num(comb[3]) if len(comb) > 3 else 0.0
+        out["b2b_cgst"] = _num(comb[4]) if len(comb) > 4 else 0.0
+        out["b2b_sgst"] = _num(comb[5]) if len(comb) > 5 else 0.0
+
+    b2cl = _row(r"5A, 5B")                                  # Records Inv Taxable IGST Cess
+    if b2cl and len(b2cl) > 2:
+        out["b2cl_taxable_value"] = _num(b2cl[2])
+        out["b2cl_igst"] = _num(b2cl[3]) if len(b2cl) > 3 else 0.0
+        out["b2cl_cgst"] = 0.0
+        out["b2cl_sgst"] = 0.0
+
+    b2cs = _row(r"7 - B2C (Others)")                        # Records Inv Taxable IGST CGST SGST Cess
+    if b2cs and len(b2cs) > 2:
+        out["b2cs_taxable_value"] = _num(b2cs[2])
+        out["b2cs_igst"] = _num(b2cs[3]) if len(b2cs) > 3 else 0.0
+        out["b2cs_cgst"] = _num(b2cs[4]) if len(b2cs) > 4 else 0.0
+        out["b2cs_sgst"] = _num(b2cs[5]) if len(b2cs) > 5 else 0.0
+
+    exp = _row(r"6A - Exports")                             # Records Inv Taxable IGST
+    if exp and len(exp) > 2:
+        out["exp_expwp_taxable"] = _num(exp[2])
+
+    nil = _row(r"8 - Nil")                                  # Records Nil Exempt Non-GST
+    if nil and len(nil) > 3:
+        out["nil_taxable_value"] = _num(nil[1])
+        out["nil_exempt"] = _num(nil[2])
+        out["nil_non_gst"] = _num(nil[3])
+
+    for lbl, base in ((r"9B - Credit / Debit Notes (Registered)", "cdnr"),
+                      (r"9B - Credit / Debit Notes (Unregistered)", "cdnur")):
+        r = _row(lbl)                                       # Records NoteValue Taxable ...
+        if r and len(r) > 2:
+            out[f"{base}_taxable"] = _num(r[2])
+            if base == "cdnr":
+                out["cdn_value"] = _num(r[2])
+
+    hsn = _row(r"12 - HSN")                                 # Records Inv Taxable IGST CGST SGST Cess
+    if hsn and len(hsn) > 2:
+        out["total_taxable_value"] = _num(hsn[2])
+        out["total_igst"] = _num(hsn[3]) if len(hsn) > 3 else 0.0
+        out["total_cgst"] = _num(hsn[4]) if len(hsn) > 4 else 0.0
+        out["total_sgst"] = _num(hsn[5]) if len(hsn) > 5 else 0.0
+
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def _parse_gstr1_annual_summary(text: str) -> Dict[str, Any]:
     """Positional parser for the GSTR-1/IFF "System generated summary" formats.
 
@@ -3111,7 +3209,17 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
     # invoice/taxable and the single-Value layouts) and table-number anchored, so
     # it is robust to watermarks that mangle section labels (e.g. 'B2MB').
     _has_value_col = bool(re.search(r'Total\s+(?:Invoice|Note)\s+[Vv]alue', text))
-    if _has_value_col or _gstr1_is_annual_summary(text):
+    if _LEGACY_A_SIG.search(text):
+        # OLD compact summary layout (FY≈2020-21/21-22): B2B/SEZ/DE merged, integer
+        # and "NA" columns break the decimal-only annual reader. Use the dedicated
+        # token-positional reader instead, and flag the merged B2B.
+        _lg = _parse_gstr1_legacy_summary(text)
+        for _k, _v in _lg.items():
+            data[_k] = _v
+        data["legacy_combined_b2b"] = True
+        logger.info("[GSTR-1] Legacy compact-summary layout parsed "
+                    "(merged B2B/SEZ/DE; %d fields)", len(_lg))
+    elif _has_value_col or _gstr1_is_annual_summary(text):
         _ann = _parse_gstr1_annual_summary(text)
         _ov = ['b2cl_taxable_value', 'b2cl_igst', 'b2cl_cgst', 'b2cl_sgst',
                'b2cs_taxable_value', 'b2cs_igst', 'b2cs_cgst', 'b2cs_sgst',

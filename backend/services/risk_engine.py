@@ -318,7 +318,7 @@ _TREND_DEFS = [
      ]),
 
     (30, "B2B Credit Note Ratio", "%", "high_bad",
-     lambda g1, g3b: _pct(
+     lambda g1, g3b: None if g1.get("legacy_combined_b2b") else _pct(
          abs(g1.get("cdnr_taxable") or g1.get("cdn_value") or 0),
          abs(g1.get("b2b_taxable_value") or 0)),
      5, 15, False,
@@ -434,10 +434,15 @@ def _gstr1_ratios(ext: dict) -> list:
     export_taxable = _g1_export_turnover(ext)
     debit_notes    = ext.get("debit_notes_taxable") or 0
 
+    # Old compact GSTR-1 layout (FY≈2020-21/21-22) merges B2B+SEZ+DE into one row,
+    # so b2b_taxable_value is not pure B2B — exclude such years from B2B-denominator
+    # ratios (per user decision). Total-turnover ratios still use the correct HSN total.
+    legacy_b2b = bool(ext.get("legacy_combined_b2b"))
+
     r1   = _pct(deemed_exports, total_taxable) if total_taxable else None
     r5   = _pct(sez_supplies, total_taxable)   if total_taxable else None
     # CDN values are stored as negatives (they reduce liability) — use abs()
-    r30  = _pct(abs(cdnr_taxable),  abs(b2b_taxable))   if b2b_taxable   else None
+    r30  = None if legacy_b2b else (_pct(abs(cdnr_taxable), abs(b2b_taxable)) if b2b_taxable else None)
     r30a = _pct(abs(cdnur_taxable), abs(b2cl_taxable))   if b2cl_taxable  else None
     r31  = _pct(abs(cdnur_taxable), abs(export_taxable)) if export_taxable else None
     r32  = _pct(abs(debit_notes),   abs(total_taxable))  if total_taxable  else None
@@ -1091,7 +1096,12 @@ def compute_risk_ratios(store) -> dict:
     monthly_ratios = _multiperiod_ratios(gstr1_monthly_ext, gstr3b_monthly_ext)
 
     # FY-level aggregation → trend ratios
-    fy_g1_agg  = {fy: _sum_fields(exts) for fy, exts in fy_g1_buckets.items()}
+    fy_g1_agg  = {}
+    for fy, exts in fy_g1_buckets.items():
+        agg = _sum_fields(exts)
+        if any(e.get("legacy_combined_b2b") for e in exts):
+            agg["legacy_combined_b2b"] = True   # merged B2B/SEZ/DE → skip B2B ratio
+        fy_g1_agg[fy] = agg
     fy_g3b_agg = {fy: _sum_fields(exts) for fy, exts in fy_g3b_buckets.items()}
     sorted_fys = sorted(
         set(fy_g1_agg) | set(fy_g3b_agg),
