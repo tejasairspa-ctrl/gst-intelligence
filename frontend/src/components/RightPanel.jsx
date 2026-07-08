@@ -3,9 +3,9 @@
  * Tabs: KPIs · Recon · Risk
  * Single-click: view in panel. Click expand button: open overlay.
  */
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
-  BarChart2, AlertTriangle, RefreshCw,
+  BarChart2, AlertTriangle, RefreshCw, Activity,
   Maximize2, GitCompare, ShieldAlert, FileSpreadsheet,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
@@ -13,8 +13,10 @@ import { KPIGrid } from './KPICard'
 import ExportButtons from './ExportButtons'
 import ReconciliationPanel from './ReconciliationPanel'
 import RiskRatiosPanel from './RiskRatiosPanel'
+import AnomaliesPanel from './AnomaliesPanel'
+import AnomalyPopup from './AnomalyPopup'
 import GSTR9Panel from './GSTR9Panel'
-import { exportRiskExcel } from '../api/client'
+import { exportRiskExcel, getAnomalies } from '../api/client'
 
 // ── Expand hint ────────────────────────────────────────────────────────────────
 function ExpandHint({ onExpand }) {
@@ -45,6 +47,29 @@ export default function RightPanel() {
   } = useApp()
   const [tab, setTab] = useState('kpis')
 
+  // ── Auto anomaly scan + popup (fires once per uploaded-file set) ────────────
+  const [anomalyData, setAnomalyData] = useState(null)
+  const [showAnomalyPopup, setShowAnomalyPopup] = useState(false)
+  const popupSigRef = useRef(null)
+  const fileCount = uploadedFiles?.length || 0
+
+  useEffect(() => {
+    if (fileCount === 0) return
+    const sig = fileCount
+    let cancelled = false
+    getAnomalies()
+      .then(({ data }) => {
+        if (cancelled || !data?.available) return
+        setAnomalyData(data)
+        if (data.has_anomalies && popupSigRef.current !== sig) {
+          popupSigRef.current = sig
+          setShowAnomalyPopup(true)
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [fileCount])
+
   if (!analytics || !activeFile) {
     return (
       <aside className="flex flex-col h-full border-l border-slate-800/60 items-center justify-center p-6">
@@ -73,6 +98,12 @@ export default function RightPanel() {
           badge: hasRecon && recon.summary?.flagged_items > 0 ? recon.summary.flagged_items : null,
         },
         { id: 'risk', label: 'Risk', icon: ShieldAlert },
+        {
+          id: 'anomalies',
+          label: 'Anomaly',
+          icon: Activity,
+          badge: anomalyData?.summary?.high > 0 ? anomalyData.summary.high : null,
+        },
       ]
 
   const handleExpandKPIs = () => openExpanded({ type: 'kpis', kpis })
@@ -196,7 +227,22 @@ export default function RightPanel() {
             <RiskRatiosPanel uploadedFiles={uploadedFiles || []} />
           </>
         )}
+
+        {tab === 'anomalies' && (
+          <>
+            <p className="section-label mb-2">Anomaly Detection · MOM & YOY</p>
+            <AnomaliesPanel uploadedFiles={uploadedFiles || []} />
+          </>
+        )}
       </div>
+
+      {showAnomalyPopup && (
+        <AnomalyPopup
+          data={anomalyData}
+          onClose={() => setShowAnomalyPopup(false)}
+          onViewAll={() => { setShowAnomalyPopup(false); setTab('anomalies') }}
+        />
+      )}
 
       {/* Export buttons at bottom */}
       <div className="p-3 border-t border-slate-800/60">

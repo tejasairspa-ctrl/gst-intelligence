@@ -147,6 +147,7 @@ export const compileGSTR2B = async (files, onProgress) => {
 // ── Risk Intelligence ─────────────────────────────────────────────────────────
 
 export const getRiskRatios   = () => api.get('/intelligence/ratios')
+export const getAnomalies    = () => api.get('/intelligence/anomalies')
 export const exportRiskExcel = () => window.open('/api/export/risk/excel', '_blank')
 
 export default api
