@@ -3,7 +3,7 @@
  * Tabs: KPIs · Recon · Risk
  * Single-click: view in panel. Click expand button: open overlay.
  */
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   BarChart2, AlertTriangle, RefreshCw, Activity,
   Maximize2, GitCompare, ShieldAlert, FileSpreadsheet,
@@ -14,7 +14,6 @@ import ExportButtons from './ExportButtons'
 import ReconciliationPanel from './ReconciliationPanel'
 import RiskRatiosPanel from './RiskRatiosPanel'
 import AnomaliesPanel from './AnomaliesPanel'
-import AnomalyPopup from './AnomalyPopup'
 import GSTR9Panel from './GSTR9Panel'
 import { exportRiskExcel, getAnomalies } from '../api/client'
 
@@ -47,25 +46,15 @@ export default function RightPanel() {
   } = useApp()
   const [tab, setTab] = useState('kpis')
 
-  // ── Auto anomaly scan + popup (fires once per uploaded-file set) ────────────
+  // ── Anomaly scan (for the tab badge only — no popup) ────────────────────────
   const [anomalyData, setAnomalyData] = useState(null)
-  const [showAnomalyPopup, setShowAnomalyPopup] = useState(false)
-  const popupSigRef = useRef(null)
   const fileCount = uploadedFiles?.length || 0
 
   useEffect(() => {
     if (fileCount === 0) return
-    const sig = fileCount
     let cancelled = false
     getAnomalies()
-      .then(({ data }) => {
-        if (cancelled || !data?.available) return
-        setAnomalyData(data)
-        if (data.has_anomalies && popupSigRef.current !== sig) {
-          popupSigRef.current = sig
-          setShowAnomalyPopup(true)
-        }
-      })
+      .then(({ data }) => { if (!cancelled && data?.available) setAnomalyData(data) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [fileCount])
@@ -235,14 +224,6 @@ export default function RightPanel() {
           </>
         )}
       </div>
-
-      {showAnomalyPopup && (
-        <AnomalyPopup
-          data={anomalyData}
-          onClose={() => setShowAnomalyPopup(false)}
-          onViewAll={() => { setShowAnomalyPopup(false); setTab('anomalies') }}
-        />
-      )}
 
       {/* Export buttons at bottom */}
       <div className="p-3 border-t border-slate-800/60">
