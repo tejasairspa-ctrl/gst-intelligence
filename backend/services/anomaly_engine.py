@@ -255,6 +255,24 @@ def compute_anomalies(store) -> Dict[str, Any]:
     mom = _detect(mom_series, "MOM")
     yoy = _detect(yoy_series, "YOY")
 
+    # ── Totals matrix (figures × period / × FY) with per-cell anomaly flags ────
+    mom_flag = {(a["metric"], a["period"]): a["severity"] for a in mom}
+    yoy_flag = {(a["metric"], a["period"]): a["severity"] for a in yoy}
+    matrix_rows = []
+    for label, form, fn, unit in _FIGURES:
+        mpts = dict(mom_series.get(label, {}).get("points", []))
+        ypts = dict(yoy_series.get(label, {}).get("points", []))
+        if not mpts and not ypts:
+            continue
+        matrix_rows.append({
+            "label": label, "unit": unit,
+            "mom": [{"period": p, "value": round(mpts[p], 2), "severity": mom_flag.get((label, p))}
+                    for p in periods if p in mpts],
+            "yoy": [{"fy": f, "value": round(ypts[f], 2), "severity": yoy_flag.get((label, f))}
+                    for f in fys if f in ypts],
+        })
+    matrix = {"periods": periods, "fys": fys, "rows": matrix_rows}
+
     def _counts(items):
         c = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
         for a in items:
@@ -265,6 +283,7 @@ def compute_anomalies(store) -> Dict[str, Any]:
     return {
         "mom": mom,
         "yoy": yoy,
+        "matrix": matrix,
         "summary": {
             "total": len(total),
             "high": sum(1 for a in total if a["severity"] == "HIGH"),

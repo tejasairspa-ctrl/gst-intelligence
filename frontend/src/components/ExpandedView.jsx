@@ -3,13 +3,14 @@
  * Supports: KPI blocks, Ratio cards, Charts, Insight sections.
  */
 import React, { useEffect } from 'react'
-import { X, Maximize2, TrendingUp, BarChart2, Scale, Lightbulb, ShieldAlert } from 'lucide-react'
+import { X, Maximize2, TrendingUp, BarChart2, Scale, Lightbulb, ShieldAlert, Activity } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { useApp } from '../context/AppContext'
 import RiskRatiosPanel from './RiskRatiosPanel'
+import AnomaliesPanel from './AnomaliesPanel'
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
 
@@ -219,6 +220,17 @@ function RiskExpanded() {
   )
 }
 
+// ── Anomalies Expanded ─────────────────────────────────────────────────────────
+function AnomaliesExpanded() {
+  const { uploadedFiles } = useApp()
+  return (
+    <div>
+      <h2 className="text-xl font-bold text-white mb-4">Anomaly Detection — MOM &amp; YOY</h2>
+      <AnomaliesPanel uploadedFiles={uploadedFiles || []} expanded />
+    </div>
+  )
+}
+
 // ── Main ExpandedView ─────────────────────────────────────────────────────────
 export default function ExpandedView() {
   const { expandedItem, closeExpanded } = useApp()
@@ -240,18 +252,21 @@ export default function ExpandedView() {
       case 'charts':   return <ChartExpanded item={expandedItem} />
       case 'insights': return <InsightsExpanded item={expandedItem} />
       case 'risk':     return <RiskExpanded />
+      case 'anomalies': return <AnomaliesExpanded />
       default:         return <div className="text-slate-400">No content</div>
     }
   }
 
   const icons = {
-    kpis:     BarChart2,
-    ratios:   Scale,
-    charts:   TrendingUp,
-    insights: Lightbulb,
-    risk:     ShieldAlert,
+    kpis:      BarChart2,
+    ratios:    Scale,
+    charts:    TrendingUp,
+    insights:  Lightbulb,
+    risk:      ShieldAlert,
+    anomalies: Activity,
   }
   const Icon = icons[expandedItem.type] || Maximize2
+  const wide = expandedItem.type === 'risk' || expandedItem.type === 'anomalies'
 
   return (
     <>
@@ -267,8 +282,8 @@ export default function ExpandedView() {
           className="w-full bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl
                      pointer-events-auto overflow-hidden"
           style={{
-            maxWidth: expandedItem?.type === 'risk' ? '90vw' : '64rem',
-            maxHeight: expandedItem?.type === 'risk' ? '88vh' : '70vh',
+            maxWidth: wide ? '90vw' : '64rem',
+            maxHeight: wide ? '88vh' : '70vh',
             animation: 'slideUpExpand 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
@@ -294,7 +309,7 @@ export default function ExpandedView() {
           </div>
 
           {/* Content */}
-          <div className="overflow-y-auto p-6" style={{ maxHeight: expandedItem?.type === 'risk' ? 'calc(88vh - 72px)' : 'calc(70vh - 72px)' }}>
+          <div className="overflow-y-auto p-6" style={{ maxHeight: wide ? 'calc(88vh - 72px)' : 'calc(70vh - 72px)' }}>
             {renderContent()}
           </div>
         </div>

@@ -219,7 +219,10 @@ export default function RightPanel() {
 
         {tab === 'anomalies' && (
           <>
-            <p className="section-label mb-2">Anomaly Detection · MOM & YOY</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="section-label">Anomaly Detection · MOM & YOY</p>
+              <ExpandHint onExpand={() => openExpanded({ type: 'anomalies' })} />
+            </div>
             <AnomaliesPanel uploadedFiles={uploadedFiles || []} />
           </>
         )}

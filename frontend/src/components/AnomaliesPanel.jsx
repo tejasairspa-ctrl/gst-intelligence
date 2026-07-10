@@ -69,6 +69,101 @@ export function AnomalyCard({ a, expandedView = false }) {
   )
 }
 
+// ── Totals matrix (figures × FY / × month) with anomalous cells highlighted ──
+const CELL_SEV = {
+  HIGH:   'bg-red-500/20 text-red-300 ring-1 ring-red-500/50',
+  MEDIUM: 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40',
+  LOW:    'bg-slate-600/20 text-slate-200 ring-1 ring-slate-500/40',
+}
+
+function MatrixTable({ title, subtitle, cols, colLabel, rows, cellFor }) {
+  if (!cols || cols.length === 0 || !rows || rows.length === 0) return null
+  return (
+    <div className="mb-6">
+      <p className="text-xs font-semibold text-slate-300 mb-0.5">{title}</p>
+      {subtitle && <p className="text-[10px] text-slate-600 mb-2">{subtitle}</p>}
+      <div className="overflow-x-auto rounded-lg border border-slate-800">
+        <table className="w-full border-collapse text-[11px]">
+          <thead>
+            <tr className="bg-slate-800/60">
+              <th className="text-left px-2 py-1.5 text-slate-400 font-semibold sticky left-0 bg-slate-800 z-10 min-w-[170px]">
+                Figure
+              </th>
+              {cols.map(c => (
+                <th key={c} className="text-right px-2 py-1.5 text-slate-400 font-medium whitespace-nowrap min-w-[78px]">
+                  {colLabel(c)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.label} className="border-t border-slate-800/50">
+                <td className="px-2 py-1.5 text-slate-300 font-medium sticky left-0 bg-slate-900 z-10">{r.label}</td>
+                {cols.map(c => {
+                  const cell = cellFor(r, c)
+                  if (!cell || cell.value === undefined || cell.value === null)
+                    return <td key={c} className="px-2 py-1.5 text-right text-slate-700 font-mono">—</td>
+                  const sev = cell.severity
+                  return (
+                    <td
+                      key={c}
+                      title={sev ? `${sev} anomaly` : undefined}
+                      className={`px-2 py-1.5 text-right font-mono whitespace-nowrap ${
+                        sev ? `font-bold rounded ${CELL_SEV[sev]}` : 'text-slate-400'}`}
+                    >
+                      {fmtVal(cell.value, r.unit)}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+const MON3 = { january: 'Jan', february: 'Feb', march: 'Mar', april: 'Apr', may: 'May',
+  june: 'Jun', july: 'Jul', august: 'Aug', september: 'Sep', october: 'Oct',
+  november: 'Nov', december: 'Dec' }
+function momLabel(period) {
+  const parts = (period || '').split(' ')
+  if (parts.length < 2) return period
+  return `${MON3[parts[0].toLowerCase()] || parts[0].slice(0, 3)}-${parts[1].slice(-2)}`
+}
+
+function AnomaliesMatrix({ matrix }) {
+  if (!matrix || !matrix.rows || matrix.rows.length === 0) return null
+  const { fys, periods, rows } = matrix
+  const yoyMap = (r) => Object.fromEntries((r.yoy || []).map(x => [x.fy, x]))
+  const momMap = (r) => Object.fromEntries((r.mom || []).map(x => [x.period, x]))
+  // precompute maps once
+  const rowsY = rows.map(r => ({ ...r, _m: yoyMap(r) }))
+  const rowsM = rows.map(r => ({ ...r, _m: momMap(r) }))
+  return (
+    <div className="mb-6">
+      <MatrixTable
+        title="Yearly Totals — anomalous figures highlighted"
+        subtitle="Each cell = that figure's FY total (Apr–Mar sum). Coloured cells deviate from the figure's own normal band."
+        cols={fys}
+        colLabel={(fy) => fy.replace('FY ', '')}
+        rows={rowsY}
+        cellFor={(r, fy) => r._m[fy]}
+      />
+      <MatrixTable
+        title="Monthly Figures — anomalous months highlighted"
+        subtitle="Each cell = that figure's value for the month. Coloured cells are month-over-month anomalies."
+        cols={periods}
+        colLabel={momLabel}
+        rows={rowsM}
+        cellFor={(r, p) => r._m[p]}
+      />
+    </div>
+  )
+}
+
 function AxisSection({ title, items, expandedView }) {
   if (!items || items.length === 0) return null
   return (
@@ -160,6 +255,21 @@ export default function AnomaliesPanel({ uploadedFiles = [], expanded: expandedV
           </button>
         ))}
       </div>
+
+      {/* Expanded view: totals matrix showing exactly which figure/period is anomalous */}
+      {expandedView && data.matrix && (
+        <>
+          <AnomaliesMatrix matrix={data.matrix} />
+          <div className="flex items-center gap-3 mb-5 text-[10px] flex-wrap">
+            <span className="text-slate-600 font-semibold uppercase tracking-wider">Legend:</span>
+            <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 ring-1 ring-red-500/50">HIGH</span>
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40">MEDIUM</span>
+            <span className="px-1.5 py-0.5 rounded bg-slate-600/20 text-slate-200 ring-1 ring-slate-500/40">LOW</span>
+            <span className="text-slate-600">— all other cells are within their normal band</span>
+          </div>
+          <p className="section-label mb-3">Anomaly Detail</p>
+        </>
+      )}
 
       <AxisSection title="Month-over-Month"   items={show.mom} expandedView={expandedView} />
       <AxisSection title="Year-over-Year"      items={show.yoy} expandedView={expandedView} />
