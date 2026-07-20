@@ -154,14 +154,24 @@ function YearlyTotalsMatrix({ fys, rows }) {
       <div className="overflow-x-auto rounded-lg border border-slate-800">
         <table className="w-full border-collapse text-[11px]">
           <thead>
-            <tr className="bg-slate-800/60">
-              <th className="text-left px-2 py-1.5 text-slate-400 font-semibold sticky left-0 bg-slate-800 z-10 min-w-[170px]">Figure</th>
-              {fys.map((fy, i) => (
+            {/* Each FY owns two sub-columns: its total and ITS OWN change vs the
+                prior year — so the first year's Δ% is correctly blank. */}
+            <tr className="bg-slate-800/70">
+              <th rowSpan={2} className="text-left px-2 py-1.5 text-slate-400 font-semibold sticky left-0 bg-slate-800 z-10 min-w-[170px] align-bottom">
+                Figure
+              </th>
+              {fys.map(fy => (
+                <th key={fy} colSpan={2}
+                    className="text-center px-2 py-1 text-slate-300 font-semibold whitespace-nowrap border-l border-slate-700/60">
+                  {fy.replace('FY ', '')}
+                </th>
+              ))}
+            </tr>
+            <tr className="bg-slate-800/40">
+              {fys.map(fy => (
                 <React.Fragment key={fy}>
-                  {i > 0 && <th className="text-right px-1.5 py-1.5 text-slate-500 font-medium min-w-[56px]">Δ%</th>}
-                  <th className="text-right px-2 py-1.5 text-slate-400 font-medium whitespace-nowrap min-w-[80px]">
-                    {fy.replace('FY ', '')}
-                  </th>
+                  <th className="text-right px-2 py-1 text-slate-500 font-medium min-w-[80px] border-l border-slate-700/60">Total</th>
+                  <th className="text-right px-1.5 py-1 text-slate-500 font-medium min-w-[58px]">Δ% vs prev</th>
                 </React.Fragment>
               ))}
             </tr>
@@ -172,20 +182,19 @@ function YearlyTotalsMatrix({ fys, rows }) {
                 <td className="px-2 py-1.5 text-slate-300 font-medium sticky left-0 bg-slate-900 z-10">{r.label}</td>
                 {fys.map((fy, i) => {
                   const cell = r._m[fy]
+                  const pct = cell?.yoy_pct
+                  const hasPct = i > 0 && pct !== null && pct !== undefined
                   return (
                     <React.Fragment key={fy}>
-                      {i > 0 && (
-                        <td className={`px-1.5 py-1.5 text-right font-mono ${pctCls(cell?.yoy_pct)}`}>
-                          {cell && cell.yoy_pct !== null && cell.yoy_pct !== undefined
-                            ? `${cell.yoy_pct >= 0 ? '+' : ''}${cell.yoy_pct}%` : '—'}
-                        </td>
-                      )}
                       <td
                         title={cell?.severity ? `${cell.severity} anomaly` : undefined}
-                        className={`px-2 py-1.5 text-right font-mono whitespace-nowrap ${
+                        className={`px-2 py-1.5 text-right font-mono whitespace-nowrap border-l border-slate-800/60 ${
                           cell?.severity ? `font-bold rounded ${CELL_SEV[cell.severity]}` : 'text-slate-400'}`}
                       >
                         {cell && cell.value !== null && cell.value !== undefined ? fmtVal(cell.value, r.unit) : '—'}
+                      </td>
+                      <td className={`px-1.5 py-1.5 text-right font-mono ${hasPct ? pctCls(pct) : 'text-slate-700'}`}>
+                        {hasPct ? `${pct >= 0 ? '+' : ''}${pct}%` : '—'}
                       </td>
                     </React.Fragment>
                   )
@@ -195,6 +204,9 @@ function YearlyTotalsMatrix({ fys, rows }) {
           </tbody>
         </table>
       </div>
+      <p className="text-[10px] text-slate-600 mt-1.5">
+        Δ% is that year's change vs the previous year — the first year has no prior year, so it shows “—”.
+      </p>
     </div>
   )
 }
