@@ -134,24 +134,78 @@ function momLabel(period) {
   return `${MON3[parts[0].toLowerCase()] || parts[0].slice(0, 3)}-${parts[1].slice(-2)}`
 }
 
+// Yearly totals with a Δ% (YoY change) column interleaved before every year
+// after the first — so you can read whether linked figures grew in step.
+function pctCls(p) {
+  if (p === null || p === undefined) return 'text-slate-600'
+  if (p >= 0) return 'text-emerald-400'
+  return 'text-red-400'
+}
+function YearlyTotalsMatrix({ fys, rows }) {
+  if (!fys || fys.length === 0 || !rows || rows.length === 0) return null
+  const mapped = rows.map(r => ({ ...r, _m: Object.fromEntries((r.yoy || []).map(x => [x.fy, x])) }))
+  return (
+    <div className="mb-6">
+      <p className="text-xs font-semibold text-slate-300 mb-0.5">Yearly Totals + YoY % change — anomalous figures highlighted</p>
+      <p className="text-[10px] text-slate-600 mb-2">
+        Each figure totalled per FY, with the % change from the prior year. Compare rows: linked figures
+        (e.g. Output Taxable ↔ Output Tax Liability) should move by a similar % — a divergence is the real anomaly.
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-slate-800">
+        <table className="w-full border-collapse text-[11px]">
+          <thead>
+            <tr className="bg-slate-800/60">
+              <th className="text-left px-2 py-1.5 text-slate-400 font-semibold sticky left-0 bg-slate-800 z-10 min-w-[170px]">Figure</th>
+              {fys.map((fy, i) => (
+                <React.Fragment key={fy}>
+                  {i > 0 && <th className="text-right px-1.5 py-1.5 text-slate-500 font-medium min-w-[56px]">Δ%</th>}
+                  <th className="text-right px-2 py-1.5 text-slate-400 font-medium whitespace-nowrap min-w-[80px]">
+                    {fy.replace('FY ', '')}
+                  </th>
+                </React.Fragment>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {mapped.map(r => (
+              <tr key={r.label} className="border-t border-slate-800/50">
+                <td className="px-2 py-1.5 text-slate-300 font-medium sticky left-0 bg-slate-900 z-10">{r.label}</td>
+                {fys.map((fy, i) => {
+                  const cell = r._m[fy]
+                  return (
+                    <React.Fragment key={fy}>
+                      {i > 0 && (
+                        <td className={`px-1.5 py-1.5 text-right font-mono ${pctCls(cell?.yoy_pct)}`}>
+                          {cell && cell.yoy_pct !== null && cell.yoy_pct !== undefined
+                            ? `${cell.yoy_pct >= 0 ? '+' : ''}${cell.yoy_pct}%` : '—'}
+                        </td>
+                      )}
+                      <td
+                        title={cell?.severity ? `${cell.severity} anomaly` : undefined}
+                        className={`px-2 py-1.5 text-right font-mono whitespace-nowrap ${
+                          cell?.severity ? `font-bold rounded ${CELL_SEV[cell.severity]}` : 'text-slate-400'}`}
+                      >
+                        {cell && cell.value !== null && cell.value !== undefined ? fmtVal(cell.value, r.unit) : '—'}
+                      </td>
+                    </React.Fragment>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function AnomaliesMatrix({ matrix }) {
   if (!matrix || !matrix.rows || matrix.rows.length === 0) return null
   const { fys, periods, rows } = matrix
-  const yoyMap = (r) => Object.fromEntries((r.yoy || []).map(x => [x.fy, x]))
-  const momMap = (r) => Object.fromEntries((r.mom || []).map(x => [x.period, x]))
-  // precompute maps once
-  const rowsY = rows.map(r => ({ ...r, _m: yoyMap(r) }))
-  const rowsM = rows.map(r => ({ ...r, _m: momMap(r) }))
+  const rowsM = rows.map(r => ({ ...r, _m: Object.fromEntries((r.mom || []).map(x => [x.period, x])) }))
   return (
     <div className="mb-6">
-      <MatrixTable
-        title="Yearly Totals — anomalous figures highlighted"
-        subtitle="Each cell = that figure's FY total (Apr–Mar sum). Coloured cells deviate from the figure's own normal band."
-        cols={fys}
-        colLabel={(fy) => fy.replace('FY ', '')}
-        rows={rowsY}
-        cellFor={(r, fy) => r._m[fy]}
-      />
+      <YearlyTotalsMatrix fys={fys} rows={rows} />
       <MatrixTable
         title="Monthly Figures — anomalous months highlighted"
         subtitle="Each cell = that figure's value for the month. Coloured cells are month-over-month anomalies."

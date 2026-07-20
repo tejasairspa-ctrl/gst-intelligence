@@ -51,8 +51,10 @@ _FIGURES = [
     ("RCM Liability (3.1d)",   "G3B", lambda e: e.get("s31d_rcm_taxable") or 0, "₹"),
 ]
 
-# Figures whose value is meaningless in the old merged-B2B layout (FY 20-21/21-22).
-_LEGACY_SKIP = {"B2B Sales"}
+# Figures excluded from the B2B-denominator RATIO in the old merged-B2B layout
+# (FY≈2020-21/21-22). NOTE: the figure TOTALS are still shown in the anomaly
+# matrix — users want the number visible even when B2B is merged with SEZ/DE.
+_LEGACY_SKIP = set()
 
 
 def _mad(vals: List[float], med: float) -> float:
@@ -258,19 +260,38 @@ def compute_anomalies(store) -> Dict[str, Any]:
     # ── Totals matrix (figures × period / × FY) with per-cell anomaly flags ────
     mom_flag = {(a["metric"], a["period"]): a["severity"] for a in mom}
     yoy_flag = {(a["metric"], a["period"]): a["severity"] for a in yoy}
+    def _pct_chg(cur, prev):
+        if prev is None or prev == 0:
+            return None
+        return round((cur - prev) / abs(prev) * 100.0, 1)
+
     matrix_rows = []
     for label, form, fn, unit in _FIGURES:
         mpts = dict(mom_series.get(label, {}).get("points", []))
         ypts = dict(yoy_series.get(label, {}).get("points", []))
         if not mpts and not ypts:
             continue
-        matrix_rows.append({
-            "label": label, "unit": unit,
-            "mom": [{"period": p, "value": round(mpts[p], 2), "severity": mom_flag.get((label, p))}
-                    for p in periods if p in mpts],
-            "yoy": [{"fy": f, "value": round(ypts[f], 2), "severity": yoy_flag.get((label, f))}
-                    for f in fys if f in ypts],
-        })
+        # YOY cells carry the year-over-year % change (from the previous present FY)
+        # so the cross-category consistency can be read directly.
+        yoy_cells, prev = [], None
+        for f in fys:
+            if f not in ypts:
+                continue
+            v = ypts[f]
+            yoy_cells.append({"fy": f, "value": round(v, 2),
+                              "severity": yoy_flag.get((label, f)),
+                              "yoy_pct": _pct_chg(v, prev)})
+            prev = v
+        mom_cells, prevm = [], None
+        for p in periods:
+            if p not in mpts:
+                continue
+            v = mpts[p]
+            mom_cells.append({"period": p, "value": round(v, 2),
+                              "severity": mom_flag.get((label, p)),
+                              "mom_pct": _pct_chg(v, prevm)})
+            prevm = v
+        matrix_rows.append({"label": label, "unit": unit, "mom": mom_cells, "yoy": yoy_cells})
     matrix = {"periods": periods, "fys": fys, "rows": matrix_rows}
 
     def _counts(items):

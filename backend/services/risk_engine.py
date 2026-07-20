@@ -130,7 +130,7 @@ _SUM_FIELDS = [
     "tax_payable_igst", "tax_payable_cgst", "tax_payable_sgst",
     "tax_paid_cash", "tax_paid_itc",
     # RCM
-    "s31d_rcm_igst", "rcm_liability", "rcm_igst", "rcm_itc",
+    "s31d_rcm_taxable", "s31d_rcm_igst", "rcm_liability", "rcm_igst", "rcm_itc",
     # Export
     "export_turnover",
 ]
