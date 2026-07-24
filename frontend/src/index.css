@@ -92,3 +92,102 @@
 .ai-response ul { @apply list-disc list-inside text-slate-300 mb-2 space-y-1 text-sm; }
 .ai-response strong { @apply text-white font-semibold; }
 .ai-response code { @apply bg-slate-800 px-1 py-0.5 rounded text-xs font-mono text-blue-300; }
+
+/* ============================================================================
+   LIGHT MODE — remap layer (toggled via <html data-theme="light">).
+   The app hardcodes the dark slate palette in every component, so instead of
+   rewriting classes we override the finite set of slate utilities (and the few
+   component classes) to light equivalents. Attribute-scoped selectors have
+   higher specificity than the base utilities, so they win without !important.
+   Brand/status colours (blue, emerald, amber, red) are left as-is — they read
+   correctly on light backgrounds.
+   ========================================================================== */
+html[data-theme="light"] body { background-color: #e9eef5; color: #0f172a; }
+html[data-theme="light"] ::-webkit-scrollbar-track { background: #e2e8f0; }
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Backgrounds ── */
+html[data-theme="light"] .bg-slate-950 { background-color: #e9eef5; }
+html[data-theme="light"] .bg-slate-900 { background-color: #ffffff; }
+html[data-theme="light"] .bg-slate-800 { background-color: #eef2f8; }
+html[data-theme="light"] .bg-slate-700 { background-color: #dde4ec; }
+html[data-theme="light"] .bg-slate-600 { background-color: #cbd5e1; }
+html[data-theme="light"] .bg-slate-500 { background-color: #94a3b8; }
+html[data-theme="light"] .bg-slate-950\/90 { background-color: rgba(233,238,245,.9); }
+html[data-theme="light"] .bg-slate-950\/50 { background-color: rgba(233,238,245,.5); }
+html[data-theme="light"] .bg-slate-900\/90 { background-color: rgba(255,255,255,.92); }
+html[data-theme="light"] .bg-slate-900\/80 { background-color: rgba(255,255,255,.88); }
+html[data-theme="light"] .bg-slate-900\/60 { background-color: rgba(255,255,255,.78); }
+html[data-theme="light"] .bg-slate-900\/50 { background-color: rgba(255,255,255,.72); }
+html[data-theme="light"] .bg-slate-900\/40 { background-color: rgba(255,255,255,.62); }
+html[data-theme="light"] .bg-slate-900\/30 { background-color: rgba(255,255,255,.52); }
+html[data-theme="light"] .bg-slate-900\/20 { background-color: rgba(255,255,255,.42); }
+html[data-theme="light"] .bg-slate-800\/80 { background-color: rgba(238,242,248,.92); }
+html[data-theme="light"] .bg-slate-800\/70 { background-color: rgba(238,242,248,.85); }
+html[data-theme="light"] .bg-slate-800\/60 { background-color: rgba(238,242,248,.78); }
+html[data-theme="light"] .bg-slate-800\/50 { background-color: rgba(238,242,248,.7); }
+html[data-theme="light"] .bg-slate-800\/40 { background-color: rgba(238,242,248,.62); }
+html[data-theme="light"] .bg-slate-800\/30 { background-color: rgba(238,242,248,.55); }
+html[data-theme="light"] .bg-slate-800\/20 { background-color: rgba(238,242,248,.48); }
+html[data-theme="light"] .bg-slate-800\/10 { background-color: rgba(238,242,248,.4); }
+html[data-theme="light"] .bg-slate-700\/50 { background-color: rgba(221,228,236,.6); }
+html[data-theme="light"] .bg-slate-700\/40 { background-color: rgba(221,228,236,.5); }
+html[data-theme="light"] .bg-slate-700\/20 { background-color: rgba(221,228,236,.4); }
+html[data-theme="light"] .bg-slate-600\/20 { background-color: rgba(203,213,225,.35); }
+
+/* ── Text ── */
+html[data-theme="light"] .text-white     { color: #0f172a; }
+html[data-theme="light"] .text-slate-200 { color: #1e293b; }
+html[data-theme="light"] .text-slate-300 { color: #334155; }
+html[data-theme="light"] .text-slate-400 { color: #475569; }
+html[data-theme="light"] .text-slate-500 { color: #5b6b7f; }
+html[data-theme="light"] .text-slate-600 { color: #7c8ba0; }
+html[data-theme="light"] .text-slate-700 { color: #9aa7b8; }
+html[data-theme="light"] .text-slate-800 { color: #b8c2d0; }
+
+/* ── Borders ── */
+html[data-theme="light"] .border-slate-700 { border-color: #d3dbe5; }
+html[data-theme="light"] .border-slate-800 { border-color: #e3e9f0; }
+html[data-theme="light"] .border-slate-600 { border-color: #c2ccd8; }
+html[data-theme="light"] .border-slate-500 { border-color: #a3afbf; }
+html[data-theme="light"] .border-slate-800\/60 { border-color: rgba(227,233,240,.9); }
+html[data-theme="light"] .border-slate-800\/50 { border-color: rgba(227,233,240,.8); }
+html[data-theme="light"] .border-slate-800\/40 { border-color: rgba(227,233,240,.7); }
+html[data-theme="light"] .border-slate-800\/30 { border-color: rgba(227,233,240,.6); }
+html[data-theme="light"] .border-slate-700\/60 { border-color: rgba(211,219,229,.9); }
+html[data-theme="light"] .border-slate-700\/50 { border-color: rgba(211,219,229,.8); }
+html[data-theme="light"] .border-slate-700\/40 { border-color: rgba(211,219,229,.7); }
+html[data-theme="light"] .border-slate-700\/30 { border-color: rgba(211,219,229,.6); }
+html[data-theme="light"] .border-slate-700\/20 { border-color: rgba(211,219,229,.5); }
+html[data-theme="light"] .border-slate-600\/40 { border-color: rgba(194,204,216,.6); }
+
+/* ── Hover states (so hovers don't flash dark in light mode) ── */
+html[data-theme="light"] .hover\:bg-slate-900:hover    { background-color: #f1f5fa; }
+html[data-theme="light"] .hover\:bg-slate-900\/40:hover { background-color: rgba(255,255,255,.62); }
+html[data-theme="light"] .hover\:bg-slate-800:hover    { background-color: #e6ecf4; }
+html[data-theme="light"] .hover\:bg-slate-800\/60:hover { background-color: rgba(230,236,244,.78); }
+html[data-theme="light"] .hover\:bg-slate-800\/40:hover { background-color: rgba(230,236,244,.6); }
+html[data-theme="light"] .hover\:bg-slate-800\/20:hover { background-color: rgba(230,236,244,.5); }
+html[data-theme="light"] .hover\:bg-slate-800\/10:hover { background-color: rgba(230,236,244,.42); }
+html[data-theme="light"] .hover\:text-white:hover     { color: #0f172a; }
+html[data-theme="light"] .hover\:text-slate-200:hover { color: #1e293b; }
+html[data-theme="light"] .hover\:text-slate-300:hover { color: #334155; }
+html[data-theme="light"] .hover\:text-slate-400:hover { color: #475569; }
+html[data-theme="light"] .hover\:border-slate-600:hover { border-color: #c2ccd8; }
+html[data-theme="light"] .hover\:border-slate-500:hover { border-color: #a3afbf; }
+
+/* ── Component classes (defined via @apply, so overridden directly) ── */
+html[data-theme="light"] .glass-card   { background-color: rgba(255,255,255,.75); border-color: rgba(226,232,240,.9); }
+html[data-theme="light"] .btn-secondary{ background-color: #eef2f8; color: #1e293b; }
+html[data-theme="light"] .btn-secondary:hover { background-color: #e2e8f0; }
+html[data-theme="light"] .btn-ghost    { color: #475569; }
+html[data-theme="light"] .input-field  { background-color: #ffffff; border-color: #cbd5e1; color: #0f172a; }
+html[data-theme="light"] .input-field::placeholder { color: #94a3b8; }
+html[data-theme="light"] .section-label{ color: #5b6b7f; }
+html[data-theme="light"] .value-neutral{ color: #334155; }
+html[data-theme="light"] .value-na     { color: #94a3b8; }
+html[data-theme="light"] .ai-response p,
+html[data-theme="light"] .ai-response ul { color: #334155; }
+html[data-theme="light"] .ai-response strong { color: #0f172a; }
+html[data-theme="light"] .ai-response code { background-color: #e2e8f0; color: #1d4ed8; }

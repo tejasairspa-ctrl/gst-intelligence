@@ -10,6 +10,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { activateFile as activateFileAPI, exportActiveExcel, exportActivePDF } from '../api/client'
 import { useNavigate } from 'react-router-dom'
+import ThemeToggle from './ThemeToggle'
 
 function StatusIcon({ status }) {
   if (status === 'ready')   return <CheckCircle2 className="w-3 h-3 text-emerald-400" />
@@ -157,9 +158,12 @@ export default function LeftPanel() {
       <div className="px-4 py-4 border-b border-slate-800/60">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-sm font-bold text-white">G</div>
-          <div>
+          <div className="min-w-0">
             <p className="text-white font-semibold text-sm leading-tight">GST Intelligence</p>
             <p className="text-slate-500 text-xs">AI Analytics Platform</p>
+          </div>
+          <div className="ml-auto flex-shrink-0">
+            <ThemeToggle />
           </div>
         </div>
       </div>
