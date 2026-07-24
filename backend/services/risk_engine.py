@@ -576,7 +576,10 @@ def _gstr3b_ratios(ext: dict) -> list:
 
     # ISD and temporary reversal (may not be present in all GSTR-3B formats)
     itc_isd      = ext.get("itc_isd") or 0
-    itc_temp_rev = ext.get("itc_temp_reversed") or 0
+    # Temporary reversal = Table 4(B)(2) "Others" (reclaimable). Prefer the parsed
+    # 4(B)(2) sub-row (itc_b2_*); fall back to the legacy itc_temp_reversed field.
+    _b2 = _g3b_sum3(ext, "itc_b2_igst", "itc_b2_cgst", "itc_b2_sgst")
+    itc_temp_rev = _b2 if _b2 is not None else (ext.get("itc_temp_reversed") or 0)
 
     # Payments — Table 6.1
     cash_igst = ext.get("cash_paid_igst") or ext.get("cash_igst") or 0
