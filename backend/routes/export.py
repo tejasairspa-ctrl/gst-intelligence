@@ -1765,3 +1765,24 @@ def risk_excel():
 
     return send_file(out, as_attachment=True, download_name=name,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@export_bp.get("/export/anomalies/excel")
+def anomalies_excel():
+    """Export the anomaly matrix + flagged-items list (see services/anomaly_workbook.py)."""
+    if not store.files:
+        return jsonify(error="No files in session"), 404
+
+    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f"GST_Anomaly_Report_{ts}.xlsx"
+    out  = os.path.join("output", name)
+
+    try:
+        from services.anomaly_workbook import build_anomaly_workbook
+        build_anomaly_workbook(store, out)
+    except Exception as exc:
+        logger.exception("Anomaly export failed: %s", exc)
+        return jsonify(error=str(exc)), 500
+
+    return send_file(out, as_attachment=True, download_name=name,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

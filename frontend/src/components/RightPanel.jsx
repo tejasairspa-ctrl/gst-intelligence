@@ -10,12 +10,11 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { KPIGrid } from './KPICard'
-import ExportButtons from './ExportButtons'
 import ReconciliationPanel from './ReconciliationPanel'
 import RiskRatiosPanel from './RiskRatiosPanel'
 import AnomaliesPanel from './AnomaliesPanel'
 import GSTR9Panel from './GSTR9Panel'
-import { exportRiskExcel, getAnomalies } from '../api/client'
+import { exportRiskExcel, exportAnomaliesExcel, getAnomalies } from '../api/client'
 
 // ── Expand hint ────────────────────────────────────────────────────────────────
 function ExpandHint({ onExpand }) {
@@ -221,17 +220,21 @@ export default function RightPanel() {
           <>
             <div className="flex items-center justify-between mb-2">
               <p className="section-label">Anomaly Detection · MOM & YOY</p>
-              <ExpandHint onExpand={() => openExpanded({ type: 'anomalies' })} />
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={exportAnomaliesExcel}
+                  className="flex items-center gap-1 text-[9px] text-emerald-500 hover:text-emerald-400
+                             px-1.5 py-0.5 rounded border border-emerald-600/30 bg-emerald-500/10 transition-colors"
+                  title="Export anomalies to Excel"
+                >
+                  <FileSpreadsheet className="w-3 h-3" /> Export
+                </button>
+                <ExpandHint onExpand={() => openExpanded({ type: 'anomalies' })} />
+              </div>
             </div>
             <AnomaliesPanel uploadedFiles={uploadedFiles || []} />
           </>
         )}
-      </div>
-
-      {/* Export buttons at bottom */}
-      <div className="p-3 border-t border-slate-800/60">
-        <p className="section-label mb-2">Export</p>
-        <ExportButtons compact />
       </div>
     </aside>
   )
