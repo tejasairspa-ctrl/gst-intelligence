@@ -1341,9 +1341,24 @@ def _parse_gstr3b_tables(tables: List) -> Dict[str, Any]:
             v_i = _tbl_num(row[1]) or 0
             v_c = _tbl_num(row[2]) or 0
             v_s = _tbl_num(row[3]) or 0
+            v_cess = (_tbl_num(row[4]) or 0) if len(row) > 4 else 0
             itc_rev_igst += v_i
             itc_rev_cgst += v_c
             itc_rev_sgst += v_s
+            # Also split into 4(B)(1) rules 38/42/43 & 17(5) vs 4(B)(2) Others so
+            # the MOM sub-columns are populated on the TABLE path too (the text
+            # path already sets these; some layouts — e.g. Eden Reality Dec-2025 —
+            # take only the table path, which previously left b1/b2 blank).
+            if '(1)' in lbl or 'rule' in lbl or '17(5)' in lbl or '17 (5)' in lbl:
+                result['itc_b1_igst'] = v_i or None
+                result['itc_b1_cgst'] = v_c or None
+                result['itc_b1_sgst'] = v_s or None
+                result['itc_b1_cess'] = v_cess or None
+            elif '(2)' in lbl or 'other' in lbl:
+                result['itc_b2_igst'] = v_i or None
+                result['itc_b2_cgst'] = v_c or None
+                result['itc_b2_sgst'] = v_s or None
+                result['itc_b2_cess'] = v_cess or None
 
     # Store GROSS ITC (A total) — this is the correct denominator for reversal ratio
     if itc_a_igst or itc_a_cgst or itc_a_sgst:
