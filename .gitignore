@@ -45,3 +45,7 @@ desktop.ini
 .env.*
 secrets.json
 credentials.json
+
+# Test-generated workbooks (may contain client data)
+backend/tests/_*.xlsx
+backend/tests/*.xlsx
