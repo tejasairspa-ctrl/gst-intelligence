@@ -1720,6 +1720,28 @@ def _gstr1_cdn_row(section_text: str) -> List[str]:
     return []
 
 
+def _gstr1_hsn_total_row(section_text: str) -> List[str]:
+    """Decimals of the HSN (Table 12) AGGREGATE 'Total' row, zeros preserved.
+
+    The modern HSN section lists three rows — 'Total' (aggregate), 'B2B Total'
+    and 'B2C Total'. Reading the whole section and dropping zero heads makes the
+    aggregate's CGST/SGST=0 get back-filled from the 'B2B Total' row (e.g. HSN
+    CGST wrongly = B2B taxable). Read ONLY the line whose first token is 'Total'
+    and keep its zeros so the column mapping stays positional.
+    """
+    lines = section_text.split('\n')
+    for ln in lines:
+        if re.match(r'^\s*Total\b', ln, re.IGNORECASE):   # not 'B2B Total'/'B2C Total'
+            d = _gstr1_extract_nums(ln)
+            if len(d) >= 2:
+                return d
+    for ln in lines:                                       # fallback: first decimals line
+        d = _gstr1_extract_nums(ln)
+        if len(d) >= 2:
+            return d
+    return []
+
+
 def _gstr1_total_nums(section_text: str) -> List[str]:
     """
     Find the Grand Total / Total row in a section and return its decimal numbers.
@@ -1824,12 +1846,10 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             max_chars=5000,
         )
         if sec_hsn:
-            nums_raw = _gstr1_total_nums(sec_hsn)
-            # Filter sub-1000 values (e.g. decimal qty like "100.00") to prevent
-            # column shift where qty lands in taxable slot and shifts igst/cgst/sgst.
-            nums_filtered = [n for n in nums_raw if abs(_gstr1_parse_amount(n)) >= 1000]
-            nums = nums_filtered if nums_filtered else nums_raw
-            data = _gstr1_map_cols(nums)
+            # Read the aggregate 'Total' row directly (zeros preserved), so a
+            # CGST/SGST of 0 is NOT back-filled from the 'B2B Total' breakdown row.
+            hsn_nums = _gstr1_hsn_total_row(sec_hsn)
+            data = _gstr1_map_cols(hsn_nums)
             # Accept negative totals too: a credit-note-only month (e.g. only a
             # 9B CDN) has a net-negative Table-12 HSN total (e.g. −1,712.71).
             if data["taxable"] != 0:
