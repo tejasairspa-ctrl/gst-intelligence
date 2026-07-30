@@ -1830,7 +1830,9 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             nums_filtered = [n for n in nums_raw if abs(_gstr1_parse_amount(n)) >= 1000]
             nums = nums_filtered if nums_filtered else nums_raw
             data = _gstr1_map_cols(nums)
-            if data["taxable"] > 0:
+            # Accept negative totals too: a credit-note-only month (e.g. only a
+            # 9B CDN) has a net-negative Table-12 HSN total (e.g. −1,712.71).
+            if data["taxable"] != 0:
                 sections["hsn"] = data
                 logger.info("[GSTR-1][sections] HSN: taxable=%s igst=%s cgst=%s sgst=%s",
                             data["taxable"], data["igst"], data["cgst"], data["sgst"])
@@ -1838,7 +1840,7 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
                 # Fallback: monetary filter for one-value-per-line summary PDFs
                 # (decimal-only regex already excludes HSN codes — safe to use)
                 all_dec  = _gstr1_extract_nums(_norm(sec_hsn))
-                monetary = [n for n in all_dec if _gstr1_parse_amount(n) >= 1000]
+                monetary = [n for n in all_dec if abs(_gstr1_parse_amount(n)) >= 1000]
                 if len(monetary) >= 2:
                     data = _gstr1_map_cols(monetary)
                     sections["hsn"] = data
@@ -3145,7 +3147,7 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
 
     # ── HSN Summary: map from sections (authoritative totals) ────────────────
     hsn = sections["hsn"]
-    if hsn["taxable"] > 0:
+    if hsn["taxable"] != 0:   # negative = net credit-note month (still a valid total)
         data["total_taxable_value"] = hsn["taxable"]
         data["total_igst"]          = hsn["igst"] if hsn["igst"] else None
         data["total_cgst"]          = hsn["cgst"] if hsn["cgst"] else None
