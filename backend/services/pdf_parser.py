@@ -54,8 +54,10 @@ def _extract_all_numbers(line: str) -> List[float]:
     # Handle currency-prefixed numbers like L1473924.52 → space before digit
     # (some PDFs encode ₹ as 'L' or other letters, leaving no word boundary)
     line_clean = re.sub(r'(?<=[A-Za-z])([\d])', r' \1', line_clean)
-    # Match Indian-format numbers: 1,00,000.00 or 18,000 or 0.00
-    matches = re.findall(r"\b[\d,]+(?:\.\d+)?\b", line_clean)
+    # Match Indian-format numbers: 1,00,000.00 or 18,000 or 0.00.
+    # Preserve a leading minus so NEGATIVE figures (e.g. a credit-note-only month
+    # where GSTR-3B 3.1(a) = -1,712.71) are read as-is, not flipped to positive.
+    matches = re.findall(r"-?\b[\d,]+(?:\.\d+)?\b", line_clean)
     results = []
     for m in matches:
         cleaned = m.replace(",", "")
@@ -1808,7 +1810,7 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
         if sec_b2b:
             nums = _gstr1_total_nums(sec_b2b)
             data = _gstr1_map_cols(nums)
-            if data["taxable"] > 0:
+            if data["taxable"] != 0:
                 sections["b2b"] = data
                 logger.info("[GSTR-1][sections] B2B: taxable=%s igst=%s cgst=%s sgst=%s",
                             data["taxable"], data["igst"], data["cgst"], data["sgst"])
@@ -2592,7 +2594,7 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
 
     # ── B2B: map from sections ────────────────────────────────────────────────
     b2b = sections["b2b"]
-    if b2b["taxable"] > 0:
+    if b2b["taxable"] != 0:
         data["b2b_taxable_value"] = b2b["taxable"]
         data["b2b_igst"]          = b2b["igst"]
         data["b2b_cgst"]          = b2b["cgst"]
@@ -2795,7 +2797,7 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
     if sec_4b:
         _nums4b = _sec_nums(sec_4b)
         _cols4b = _gstr1_map_cols(_nums4b)
-        if _cols4b["taxable"] > 0:
+        if _cols4b["taxable"] != 0:
             data["b2b_rcm_taxable"] = _cols4b["taxable"]
             data["b2b_rcm_igst"]    = _cols4b["igst"]
             data["b2b_rcm_cgst"]    = _cols4b["cgst"]
@@ -2830,7 +2832,7 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         if data["exp_expwp_taxable"] is None:
             _exp_total = _sec_nums(sec_6a)
             _exp_cols  = _gstr1_map_cols(_exp_total)
-            if _exp_cols["taxable"] > 0:
+            if _exp_cols["taxable"] != 0:
                 data["exp_expwp_taxable"] = _exp_cols["taxable"]
                 data["exp_expwp_igst"]    = _exp_cols["igst"]
         logger.info("[GSTR-1] 6A Exports EXPWP=%s EXPWOP=%s",
@@ -2861,7 +2863,7 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         if data["sez_sezwp_taxable"] is None:
             _sez_total = _sec_nums(sec_6b)
             _sez_cols  = _gstr1_map_cols(_sez_total)
-            if _sez_cols["taxable"] > 0:
+            if _sez_cols["taxable"] != 0:
                 data["sez_sezwp_taxable"] = _sez_cols["taxable"]
                 data["sez_sezwp_igst"]    = _sez_cols["igst"]
         logger.info("[GSTR-1] 6B SEZ SEZWP=%s SEZWOP=%s",
@@ -2878,7 +2880,7 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
     if sec_6c:
         _de_total = _sec_nums(sec_6c)
         _de_cols  = _gstr1_map_cols(_de_total)
-        if _de_cols["taxable"] > 0:
+        if _de_cols["taxable"] != 0:
             data["de_taxable"] = _de_cols["taxable"]
             data["de_igst"]    = _de_cols["igst"]
             data["de_cgst"]    = _de_cols["cgst"]
