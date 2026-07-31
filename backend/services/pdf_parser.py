@@ -1831,7 +1831,11 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             # Read the data row directly (robust to small/mixed-sign heads).
             nums = _gstr1_cdn_row(sec_b2cs) or _gstr1_total_nums(sec_b2cs)
             data = _gstr1_map_cols(nums)
-            if data["taxable"] > 0:
+            # Table 7 is "Net of debit and credit notes", so it is legitimately
+            # NEGATIVE in months where credit notes exceed B2CS sales (e.g. this
+            # client May −6,045.76 / Dec −12,270.68 / Jan −1,712.71). Accept any
+            # non-zero value — a positive-only guard silently drops those months.
+            if data["taxable"] != 0:
                 sections["b2cs"] = data
                 logger.info("[GSTR-1][sections] B2CS: taxable=%s igst=%s cgst=%s sgst=%s",
                             data["taxable"], data["igst"], data["cgst"], data["sgst"])
@@ -2669,8 +2673,10 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
                     break
 
     # ── B2CS: map from sections ───────────────────────────────────────────────
+    # Table 7 is NET of debit/credit notes → legitimately negative when credit
+    # notes exceed B2CS sales. Accept any non-zero value (not just positive).
     b2cs = sections["b2cs"]
-    if b2cs["taxable"] > 0:
+    if b2cs["taxable"] != 0:
         data["b2cs_taxable_value"] = b2cs["taxable"]
         data["b2cs_igst"]          = b2cs["igst"]   # 0.0 for intra-state; non-zero for inter-state B2CS
         data["b2cs_cgst"]          = b2cs["cgst"] if b2cs["cgst"] else None
