@@ -201,6 +201,15 @@ def _build_ext_row(file_info, ext):
         # HSN authoritative totals (also used as Total Tax columns)
         "hsn_taxable":   ext.get("total_taxable_value") or 0,
         "hsn_igst":      ext.get("total_igst")          or 0,
+        # 12 HSN B2B Total / B2C Total (newer bifurcated Table 12)
+        "hsn_b2b_taxable": ext.get("hsn_b2b_taxable") or 0,
+        "hsn_b2b_igst":    ext.get("hsn_b2b_igst")    or 0,
+        "hsn_b2b_cgst":    ext.get("hsn_b2b_cgst")    or 0,
+        "hsn_b2b_sgst":    ext.get("hsn_b2b_sgst")    or 0,
+        "hsn_b2c_taxable": ext.get("hsn_b2c_taxable") or 0,
+        "hsn_b2c_igst":    ext.get("hsn_b2c_igst")    or 0,
+        "hsn_b2c_cgst":    ext.get("hsn_b2c_cgst")    or 0,
+        "hsn_b2c_sgst":    ext.get("hsn_b2c_sgst")    or 0,
         "hsn_cgst":      ext.get("total_cgst")          or 0,
         "hsn_sgst":      ext.get("total_sgst")          or 0,
     }
@@ -316,6 +325,16 @@ _MOM_COLS = [
     ("hsn_igst",           "12 - HSN Summary",    "IGST"),
     ("hsn_cgst",           "12 - HSN Summary",    "CGST"),
     ("hsn_sgst",           "12 - HSN Summary",    "SGST"),
+    # 12 HSN B2B Total (newer bifurcated Table 12)
+    ("hsn_b2b_taxable",    "12 - HSN B2B Total",  "Taxable"),
+    ("hsn_b2b_igst",       "12 - HSN B2B Total",  "IGST"),
+    ("hsn_b2b_cgst",       "12 - HSN B2B Total",  "CGST"),
+    ("hsn_b2b_sgst",       "12 - HSN B2B Total",  "SGST"),
+    # 12 HSN B2C Total
+    ("hsn_b2c_taxable",    "12 - HSN B2C Total",  "Taxable"),
+    ("hsn_b2c_igst",       "12 - HSN B2C Total",  "IGST"),
+    ("hsn_b2c_cgst",       "12 - HSN B2C Total",  "CGST"),
+    ("hsn_b2c_sgst",       "12 - HSN B2C Total",  "SGST"),
     # Total Tax
     ("hsn_taxable",        "Total Tax",           "Taxable"),
     ("hsn_igst",           "Total Tax",           "IGST"),
@@ -471,7 +490,9 @@ def _generate_mom_excel(rows, annual_row, fmt, gstin, output_path):
         ("14 - E-Commerce",     68, 71),
         ("15 - u/s 9(5)",       72, 75),
         ("12 - HSN Summary",    76, 79),
-        ("Total Tax",           80, 83),
+        ("12 - HSN B2B Total",  80, 83),
+        ("12 - HSN B2C Total",  84, 87),
+        ("Total Tax",           88, 91),
     ]
     for grp_name, cs, ce in _groups:
         ws.merge_cells(start_row=ROW_GRP, start_column=cs,

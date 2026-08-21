@@ -227,6 +227,15 @@ function GSTR1Table({ files, analyticsById, fmtMode, annualFileId, annualFile, a
     hsn_igst:     ext.total_igst          ?? null,
     hsn_cgst:     ext.total_cgst          ?? null,
     hsn_sgst:     ext.total_sgst          ?? null,
+    // 12 HSN B2B Total / B2C Total (newer bifurcated Table 12)
+    hsn_b2b_taxable: ext.hsn_b2b_taxable ?? null,
+    hsn_b2b_igst:    ext.hsn_b2b_igst    ?? null,
+    hsn_b2b_cgst:    ext.hsn_b2b_cgst    ?? null,
+    hsn_b2b_sgst:    ext.hsn_b2b_sgst    ?? null,
+    hsn_b2c_taxable: ext.hsn_b2c_taxable ?? null,
+    hsn_b2c_igst:    ext.hsn_b2c_igst    ?? null,
+    hsn_b2c_cgst:    ext.hsn_b2c_cgst    ?? null,
+    hsn_b2c_sgst:    ext.hsn_b2c_sgst    ?? null,
   })
 
   const rows = filesWithData.map((f) => buildRow(f, analyticsById[f.id]?.extracted_data || {}))
@@ -296,6 +305,8 @@ function GSTR1Table({ files, analyticsById, fmtMode, annualFileId, annualFile, a
             <th colSpan={4} className={`${thG} border-l border-slate-700`}>14 - E-Commerce</th>
             <th colSpan={4} className={`${thG} border-l border-slate-700`}>15 - u/s 9(5)</th>
             <th colSpan={4} className={`${thG} border-l border-slate-700`}>12 - HSN Summary</th>
+            <th colSpan={4} className={`${thG} border-l border-slate-700`}>12 - HSN B2B Total</th>
+            <th colSpan={4} className={`${thG} border-l border-slate-700`}>12 - HSN B2C Total</th>
             <th colSpan={4} className={`${thG} border-l border-slate-700 text-blue-400`}>Total Tax</th>
           </tr>
           <tr className="bg-slate-900/60 border-b border-slate-800">
@@ -348,6 +359,10 @@ function GSTR1Table({ files, analyticsById, fmtMode, annualFileId, annualFile, a
             {/* 15 9(5) */}
             <th className={`${thS} border-l border-slate-700`}>Taxable</th><th className={thS}>IGST</th><th className={thS}>CGST</th><th className={thS}>SGST</th>
             {/* HSN */}
+            <th className={`${thS} border-l border-slate-700`}>Taxable</th><th className={thS}>IGST</th><th className={thS}>CGST</th><th className={thS}>SGST</th>
+            {/* HSN B2B Total */}
+            <th className={`${thS} border-l border-slate-700`}>Taxable</th><th className={thS}>IGST</th><th className={thS}>CGST</th><th className={thS}>SGST</th>
+            {/* HSN B2C Total */}
             <th className={`${thS} border-l border-slate-700`}>Taxable</th><th className={thS}>IGST</th><th className={thS}>CGST</th><th className={thS}>SGST</th>
             {/* Total */}
             <th className={`${thS} border-l border-slate-700 text-blue-300`}>Taxable</th><th className={`${thS} text-blue-300`}>IGST</th><th className={`${thS} text-blue-300`}>CGST</th><th className={`${thS} text-blue-300`}>SGST</th>
@@ -453,6 +468,16 @@ function GSTR1Table({ files, analyticsById, fmtMode, annualFileId, annualFile, a
               <td className={anomCls(i,'hsn_igst',          tdM)}>{fmtVal(r.hsn_igst,            fmtMode)}</td>
               <td className={anomCls(i,'hsn_cgst',          tdM)}>{fmtVal(r.hsn_cgst,            fmtMode)}</td>
               <td className={anomCls(i,'hsn_sgst',          tdM)}>{fmtVal(r.hsn_sgst,            fmtMode)}</td>
+              {/* HSN B2B Total */}
+              <td className={anomCls(i,'hsn_b2b_taxable',   tdB)}>{fmtVal(r.hsn_b2b_taxable,     fmtMode)}</td>
+              <td className={anomCls(i,'hsn_b2b_igst',      tdM)}>{fmtVal(r.hsn_b2b_igst,        fmtMode)}</td>
+              <td className={anomCls(i,'hsn_b2b_cgst',      tdM)}>{fmtVal(r.hsn_b2b_cgst,        fmtMode)}</td>
+              <td className={anomCls(i,'hsn_b2b_sgst',      tdM)}>{fmtVal(r.hsn_b2b_sgst,        fmtMode)}</td>
+              {/* HSN B2C Total */}
+              <td className={anomCls(i,'hsn_b2c_taxable',   tdB)}>{fmtVal(r.hsn_b2c_taxable,     fmtMode)}</td>
+              <td className={anomCls(i,'hsn_b2c_igst',      tdM)}>{fmtVal(r.hsn_b2c_igst,        fmtMode)}</td>
+              <td className={anomCls(i,'hsn_b2c_cgst',      tdM)}>{fmtVal(r.hsn_b2c_cgst,        fmtMode)}</td>
+              <td className={anomCls(i,'hsn_b2c_sgst',      tdM)}>{fmtVal(r.hsn_b2c_sgst,        fmtMode)}</td>
               {/* Total Tax */}
               <td className="px-3 py-2.5 text-right font-mono text-blue-200 whitespace-nowrap border-l border-slate-800/60">{fmtVal(r.hsn_taxable,fmtMode)}</td>
               <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-400 whitespace-nowrap">{fmtVal(r.hsn_igst,fmtMode)}</td>
@@ -507,6 +532,10 @@ function GSTR1Table({ files, analyticsById, fmtMode, annualFileId, annualFile, a
             <td className={ftB}>{fmtVal(sum('s95_taxable'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('s95_igst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('s95_cgst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('s95_sgst'),fmtMode)}</td>
             {/* HSN */}
             <td className={ftB}>{fmtVal(sum('hsn_taxable'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_igst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_cgst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_sgst'),fmtMode)}</td>
+            {/* HSN B2B Total */}
+            <td className={ftB}>{fmtVal(sum('hsn_b2b_taxable'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_b2b_igst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_b2b_cgst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_b2b_sgst'),fmtMode)}</td>
+            {/* HSN B2C Total */}
+            <td className={ftB}>{fmtVal(sum('hsn_b2c_taxable'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_b2c_igst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_b2c_cgst'),fmtMode)}</td><td className={ftM}>{fmtVal(sum('hsn_b2c_sgst'),fmtMode)}</td>
             {/* Total */}
             <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-200 text-sm whitespace-nowrap border-l border-slate-800/60">{fmtVal(sum('hsn_taxable'),fmtMode)}</td>
             <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-400 text-sm whitespace-nowrap">{fmtVal(sum('hsn_igst'),fmtMode)}</td>
@@ -544,6 +573,8 @@ function GSTR1Table({ files, analyticsById, fmtMode, annualFileId, annualFile, a
                 'eco_taxable','eco_igst','eco_cgst','eco_sgst',
                 's95_taxable','s95_igst','s95_cgst','s95_sgst',
                 'hsn_taxable','hsn_igst','hsn_cgst','hsn_sgst',
+                'hsn_b2b_taxable','hsn_b2b_igst','hsn_b2b_cgst','hsn_b2b_sgst',
+                'hsn_b2c_taxable','hsn_b2c_igst','hsn_b2c_cgst','hsn_b2c_sgst',
                 'hsn_taxable','hsn_igst','hsn_cgst','hsn_sgst'].map((k,idx) => (
                 <td key={idx} className="px-3 py-2 text-right font-mono text-amber-300 whitespace-nowrap">
                   {fmtVal(annualRow[k], fmtMode)}
@@ -579,6 +610,8 @@ function GSTR1Table({ files, analyticsById, fmtMode, annualFileId, annualFile, a
                 'eco_taxable','eco_igst','eco_cgst','eco_sgst',
                 's95_taxable','s95_igst','s95_cgst','s95_sgst',
                 'hsn_taxable','hsn_igst','hsn_cgst','hsn_sgst',
+                'hsn_b2b_taxable','hsn_b2b_igst','hsn_b2b_cgst','hsn_b2b_sgst',
+                'hsn_b2c_taxable','hsn_b2c_igst','hsn_b2c_cgst','hsn_b2c_sgst',
                 'hsn_taxable','hsn_igst','hsn_cgst','hsn_sgst'].map((k, idx) => {
                 const dv = diffVal(k)
                 return <td key={idx} className={diffCls(dv)}>{fmtDiff(dv)}</td>

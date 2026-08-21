@@ -1744,6 +1744,21 @@ def _gstr1_hsn_total_row(section_text: str) -> List[str]:
     return []
 
 
+def _gstr1_hsn_sub_row(section_text: str, label_re: str) -> List[str]:
+    """Decimals of an HSN (Table 12) sub-row — 'B2B Total' or 'B2C Total'.
+
+    Newer GSTR-1 PDFs bifurcate Table 12 into Total / B2B Total / B2C Total.
+    Reads the line whose first token matches label_re, zeros preserved so the
+    positional column mapping (taxable, IGST, CGST, SGST) stays aligned.
+    """
+    for ln in section_text.split('\n'):
+        if re.match(r'^\s*' + label_re, ln.strip(), re.IGNORECASE):
+            d = _gstr1_extract_nums(ln)
+            if len(d) >= 2:
+                return d
+    return []
+
+
 def _gstr1_total_nums(section_text: str) -> List[str]:
     """
     Find the Grand Total / Total row in a section and return its decimal numbers.
@@ -1790,6 +1805,9 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
         "b2b":   {"taxable": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0},
         "b2cs":  {"taxable": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0},
         "hsn":   {"taxable": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0},
+        # Table 12 HSN now bifurcates into B2B Total / B2C Total sub-rows.
+        "hsn_b2b": {"taxable": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0},
+        "hsn_b2c": {"taxable": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0},
         # New sections
         "nil":   {"nil_rated": 0.0, "exempt": 0.0, "non_gst": 0.0},
         "cdnr":  {"taxable": 0.0, "igst": 0.0, "cgst": 0.0, "sgst": 0.0},
@@ -1862,6 +1880,13 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
                 sections["hsn"] = data
                 logger.info("[GSTR-1][sections] HSN: taxable=%s igst=%s cgst=%s sgst=%s",
                             data["taxable"], data["igst"], data["cgst"], data["sgst"])
+            # HSN B2B Total / B2C Total sub-rows (newer bifurcated Table 12).
+            _hsn_b2b = _gstr1_map_cols(_gstr1_hsn_sub_row(sec_hsn, r"B2B\s*Total"))
+            _hsn_b2c = _gstr1_map_cols(_gstr1_hsn_sub_row(sec_hsn, r"B2C\s*Total"))
+            if _hsn_b2b["taxable"] != 0:
+                sections["hsn_b2b"] = _hsn_b2b
+            if _hsn_b2c["taxable"] != 0:
+                sections["hsn_b2c"] = _hsn_b2c
             else:
                 # Fallback: monetary filter for one-value-per-line summary PDFs
                 # (decimal-only regex already excludes HSN codes — safe to use)
@@ -2522,6 +2547,9 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         "total_cgst": None,
         "total_sgst": None,
         "total_cess": None,
+        # Table 12 HSN B2B Total / B2C Total sub-rows (newer bifurcated format)
+        "hsn_b2b_taxable": None, "hsn_b2b_igst": None, "hsn_b2b_cgst": None, "hsn_b2b_sgst": None,
+        "hsn_b2c_taxable": None, "hsn_b2c_igst": None, "hsn_b2c_cgst": None, "hsn_b2c_sgst": None,
         # ── NEW: 4B B2B Reverse Charge ───────────────────────────────────────
         "b2b_rcm_taxable": None, "b2b_rcm_igst": None,
         "b2b_rcm_cgst": None,   "b2b_rcm_sgst": None,
@@ -3183,6 +3211,13 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         logger.info("[GSTR-1] HSN totals mapped: taxable=%s igst=%s cgst=%s sgst=%s",
                     data["total_taxable_value"], data["total_igst"],
                     data["total_cgst"], data["total_sgst"])
+        # HSN B2B Total / B2C Total sub-rows (newer bifurcated Table 12).
+        for _key, _src in (("hsn_b2b", sections["hsn_b2b"]), ("hsn_b2c", sections["hsn_b2c"])):
+            if _src["taxable"] != 0 or _src["igst"] != 0 or _src["cgst"] != 0:
+                data[f"{_key}_taxable"] = _src["taxable"]
+                data[f"{_key}_igst"]    = _src["igst"]
+                data[f"{_key}_cgst"]    = _src["cgst"]
+                data[f"{_key}_sgst"]    = _src["sgst"]
     else:
         logger.warning("[GSTR-1] HSN Summary NOT found or zero values")
         data["_parse_warnings"].append("HSN-wise summary not found — using computed totals")
