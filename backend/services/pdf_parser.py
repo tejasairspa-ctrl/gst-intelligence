@@ -2281,8 +2281,10 @@ def _gstr1_annual_row(lines: List[str], anchor_re: str) -> List[float]:
 
 
 # Signature of the OLD compact GSTR-1 summary layout (≈FY 2020-21 / 2021-22 portal
-# PDFs): B2B, SEZ and Deemed Export are collapsed into ONE combined row.
-_LEGACY_A_SIG = re.compile(r'4A,\s*4B,\s*6B,\s*6C\s*[-–]\s*B2B', re.IGNORECASE)
+# PDFs): B2B, SEZ and Deemed Export are collapsed into ONE combined row. The
+# combined header varies by portal era — "4A, 4B, 6B, 6C - B2B" and
+# "4A, 4B, 4C, 6B, 6C - B2B" both seen — so match any table refs between 4B and 6C.
+_LEGACY_A_SIG = re.compile(r'4A,\s*4B,[0-9A-C,\s]*6C\s*[-–]\s*B2B', re.IGNORECASE)
 
 
 def _parse_gstr1_legacy_summary(text: str) -> Dict[str, Any]:
@@ -2306,11 +2308,16 @@ def _parse_gstr1_legacy_summary(text: str) -> Dict[str, Any]:
         except (ValueError, AttributeError):
             return None
 
-    def _row(label):
-        i = text.find(label)
-        if i < 0:
+    def _row(label, is_regex=False):
+        if is_regex:
+            m = re.search(label, text, re.IGNORECASE)
+            start = m.end() if m else -1
+        else:
+            i = text.find(label)
+            start = i + len(label) if i >= 0 else -1
+        if start < 0:
             return None
-        for ln in text[i + len(label): i + 600].split('\n'):
+        for ln in text[start: start + 600].split('\n'):
             s = ln.strip()
             if not s or 'IP Address' in s:
                 continue
@@ -2329,7 +2336,8 @@ def _parse_gstr1_legacy_summary(text: str) -> Dict[str, Any]:
         return _num(t[idx]) if t and len(t) > idx else None
 
     out: Dict[str, Any] = {}
-    comb = _row(r"4A, 4B, 6B, 6C")                          # B2B + SEZ + DE (merged)
+    # Combined B2B/SEZ/DE header varies ("4A, 4B, 6B, 6C" or "4A, 4B, 4C, 6B, 6C").
+    comb = _row(r"4A,\s*4B,[0-9A-C,\s]*6C\s*[-–]\s*B2B", is_regex=True)  # B2B + SEZ + DE (merged)
     if comb and len(comb) > 2:
         out["b2b_taxable_value"] = _num(comb[2])
         out["b2b_igst"] = _num(comb[3]) if len(comb) > 3 else 0.0
@@ -2365,8 +2373,13 @@ def _parse_gstr1_legacy_summary(text: str) -> Dict[str, Any]:
         r = _row(lbl)                                       # Records NoteValue Taxable ...
         if r and len(r) > 2:
             out[f"{base}_taxable"] = _num(r[2])
-            if base == "cdnr":
-                out["cdn_value"] = _num(r[2])
+            if base == "cdnr":                              # 7-col: Note Taxable IGST CGST SGST Cess
+                out["cdn_value"]  = _num(r[2])
+                out["cdnr_igst"]  = _num(r[3]) if len(r) > 3 else 0.0
+                out["cdnr_cgst"]  = _num(r[4]) if len(r) > 4 else 0.0
+                out["cdnr_sgst"]  = _num(r[5]) if len(r) > 5 else 0.0
+            else:                                           # cdnur 5-col: Note Taxable IGST Cess
+                out["cdnur_igst"] = _num(r[3]) if len(r) > 3 else 0.0
 
     hsn = _row(r"12 - HSN")                                 # Records Inv Taxable IGST CGST SGST Cess
     if hsn and len(hsn) > 2:
