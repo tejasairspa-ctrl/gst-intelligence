@@ -210,6 +210,11 @@ def _build_ext_row(file_info, ext):
         "hsn_b2c_igst":    ext.get("hsn_b2c_igst")    or 0,
         "hsn_b2c_cgst":    ext.get("hsn_b2c_cgst")    or 0,
         "hsn_b2c_sgst":    ext.get("hsn_b2c_sgst")    or 0,
+        # Total Tax (computed: Σ all supply-table heads + CDN signed)
+        "tt_taxable":    ext.get("tt_taxable") if ext.get("tt_taxable") is not None else (ext.get("total_taxable_value") or 0),
+        "tt_igst":       ext.get("tt_igst")    if ext.get("tt_igst")    is not None else (ext.get("total_igst")          or 0),
+        "tt_cgst":       ext.get("tt_cgst")    if ext.get("tt_cgst")    is not None else (ext.get("total_cgst")          or 0),
+        "tt_sgst":       ext.get("tt_sgst")    if ext.get("tt_sgst")    is not None else (ext.get("total_sgst")          or 0),
         "hsn_cgst":      ext.get("total_cgst")          or 0,
         "hsn_sgst":      ext.get("total_sgst")          or 0,
     }
@@ -335,11 +340,11 @@ _MOM_COLS = [
     ("hsn_b2c_igst",       "12 - HSN B2C Total",  "IGST"),
     ("hsn_b2c_cgst",       "12 - HSN B2C Total",  "CGST"),
     ("hsn_b2c_sgst",       "12 - HSN B2C Total",  "SGST"),
-    # Total Tax
-    ("hsn_taxable",        "Total Tax",           "Taxable"),
-    ("hsn_igst",           "Total Tax",           "IGST"),
-    ("hsn_cgst",           "Total Tax",           "CGST"),
-    ("hsn_sgst",           "Total Tax",           "SGST"),
+    # Total Tax (computed: Σ all supply-table heads + CDN signed)
+    ("tt_taxable",         "Total Tax",           "Taxable"),
+    ("tt_igst",            "Total Tax",           "IGST"),
+    ("tt_cgst",            "Total Tax",           "CGST"),
+    ("tt_sgst",            "Total Tax",           "SGST"),
 ]
 
 

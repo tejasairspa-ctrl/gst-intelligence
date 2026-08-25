@@ -3432,6 +3432,36 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         "total_cgst":     data.get("total_cgst"),
         "total_sgst":     data.get("total_sgst"),
     })
+
+    # ── Total Tax (team definition) ──────────────────────────────────────────
+    # Σ of every supply-table head PLUS the CDN heads (CDN is stored SIGNED —
+    # negative for net credit notes — so adding it subtracts the credit notes,
+    # exactly "add all taxable values from all tables, minus the CDN numbers").
+    # Computed independently of Table 12 HSN so older formats (≈FY2021-22) that
+    # have no reliable aggregate still get a Total Tax; done per head so IGST /
+    # CGST / SGST follow the same rule.
+    def _tt(*args):
+        vals = [v for v in args if v is not None]
+        return round(sum(vals), 2) if vals else None
+
+    data["tt_taxable"] = _tt(
+        data.get("b2b_taxable_value"), data.get("b2cl_taxable_value"),
+        data.get("b2cs_taxable_value"),
+        data.get("exp_expwp_taxable"), data.get("exp_expwop_taxable"),
+        data.get("sez_sezwp_taxable"), data.get("sez_sezwop_taxable"),
+        data.get("de_taxable"),
+        data.get("cdnr_taxable"), data.get("cdnur_taxable"))
+    data["tt_igst"] = _tt(
+        data.get("b2b_igst"), data.get("b2cl_igst"), data.get("b2cs_igst"),
+        data.get("exp_expwp_igst"), data.get("sez_sezwp_igst"), data.get("de_igst"),
+        data.get("cdnr_igst"), data.get("cdnur_igst"))
+    data["tt_cgst"] = _tt(
+        data.get("b2b_cgst"), data.get("b2cs_cgst"), data.get("de_cgst"),
+        data.get("cdnr_cgst"), data.get("cdnur_cgst"))
+    data["tt_sgst"] = _tt(
+        data.get("b2b_sgst"), data.get("b2cs_sgst"), data.get("de_sgst"),
+        data.get("cdnr_sgst"), data.get("cdnur_sgst"))
+
     return data
 
 
