@@ -3433,34 +3433,44 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         "total_sgst":     data.get("total_sgst"),
     })
 
-    # ── Total Tax (team definition) ──────────────────────────────────────────
-    # Σ of every supply-table head PLUS the CDN heads (CDN is stored SIGNED —
-    # negative for net credit notes — so adding it subtracts the credit notes,
-    # exactly "add all taxable values from all tables, minus the CDN numbers").
-    # Computed independently of Table 12 HSN so older formats (≈FY2021-22) that
-    # have no reliable aggregate still get a Total Tax; done per head so IGST /
-    # CGST / SGST follow the same rule.
-    def _tt(*args):
-        vals = [v for v in args if v is not None]
-        return round(sum(vals), 2) if vals else None
+    # ── Total Tax ────────────────────────────────────────────────────────────
+    # Newer GSTR-1 PDFs print a "Total Liability (Outward supplies other than
+    # Reverse charge)" row at the end — the portal's own declared total. Prefer
+    # it when present. Older formats (≈FY2021-22) have no such row, so fall back
+    # to computing it: Σ every supply-table head PLUS the CDN heads (CDN is
+    # stored SIGNED — negative for net credit notes — so adding it subtracts the
+    # credit notes: "add all taxable values from all tables, minus the CDN").
+    _tl = re.search(r'Total\s+Liability\s*\(\s*Outward', text, re.IGNORECASE)
+    _tl_nums = _gstr1_extract_nums(text[_tl.start(): _tl.start() + 200]) if _tl else []
+    if len(_tl_nums) >= 4:
+        data["tt_taxable"] = _gstr1_parse_amount(_tl_nums[0])
+        data["tt_igst"]    = _gstr1_parse_amount(_tl_nums[1])
+        data["tt_cgst"]    = _gstr1_parse_amount(_tl_nums[2])
+        data["tt_sgst"]    = _gstr1_parse_amount(_tl_nums[3])
+        data["tt_source"]  = "total_liability"
+    else:
+        def _tt(*args):
+            vals = [v for v in args if v is not None]
+            return round(sum(vals), 2) if vals else None
 
-    data["tt_taxable"] = _tt(
-        data.get("b2b_taxable_value"), data.get("b2cl_taxable_value"),
-        data.get("b2cs_taxable_value"),
-        data.get("exp_expwp_taxable"), data.get("exp_expwop_taxable"),
-        data.get("sez_sezwp_taxable"), data.get("sez_sezwop_taxable"),
-        data.get("de_taxable"),
-        data.get("cdnr_taxable"), data.get("cdnur_taxable"))
-    data["tt_igst"] = _tt(
-        data.get("b2b_igst"), data.get("b2cl_igst"), data.get("b2cs_igst"),
-        data.get("exp_expwp_igst"), data.get("sez_sezwp_igst"), data.get("de_igst"),
-        data.get("cdnr_igst"), data.get("cdnur_igst"))
-    data["tt_cgst"] = _tt(
-        data.get("b2b_cgst"), data.get("b2cs_cgst"), data.get("de_cgst"),
-        data.get("cdnr_cgst"), data.get("cdnur_cgst"))
-    data["tt_sgst"] = _tt(
-        data.get("b2b_sgst"), data.get("b2cs_sgst"), data.get("de_sgst"),
-        data.get("cdnr_sgst"), data.get("cdnur_sgst"))
+        data["tt_taxable"] = _tt(
+            data.get("b2b_taxable_value"), data.get("b2cl_taxable_value"),
+            data.get("b2cs_taxable_value"),
+            data.get("exp_expwp_taxable"), data.get("exp_expwop_taxable"),
+            data.get("sez_sezwp_taxable"), data.get("sez_sezwop_taxable"),
+            data.get("de_taxable"),
+            data.get("cdnr_taxable"), data.get("cdnur_taxable"))
+        data["tt_igst"] = _tt(
+            data.get("b2b_igst"), data.get("b2cl_igst"), data.get("b2cs_igst"),
+            data.get("exp_expwp_igst"), data.get("sez_sezwp_igst"), data.get("de_igst"),
+            data.get("cdnr_igst"), data.get("cdnur_igst"))
+        data["tt_cgst"] = _tt(
+            data.get("b2b_cgst"), data.get("b2cs_cgst"), data.get("de_cgst"),
+            data.get("cdnr_cgst"), data.get("cdnur_cgst"))
+        data["tt_sgst"] = _tt(
+            data.get("b2b_sgst"), data.get("b2cs_sgst"), data.get("de_sgst"),
+            data.get("cdnr_sgst"), data.get("cdnur_sgst"))
+        data["tt_source"] = "computed"
 
     return data
 
