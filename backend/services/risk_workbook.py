@@ -50,6 +50,7 @@ def _mon_label(period):
 # Each entry: (field_key, GST-table label). Order = display order on data sheet.
 _G1_FIELDS = [
     ("total_taxable_value", "Table 12 — Total Taxable Turnover (HSN)"),
+    ("tt_taxable",          "Total Tax — Σ tables − CDN (ratio turnover)"),
     ("b2b_taxable_value",   "Table 4A — B2B Taxable"),
     ("b2cl_taxable_value",  "Table 5A/5B — B2CL Taxable"),
     ("exp_expwp_taxable",   "Table 6A — Exports WP Taxable"),
@@ -117,11 +118,11 @@ G1, G3B = "G1", "G3B"
 _PCT_RATIOS = [
     (1, "Deemed Exports", "Deemed Export to Total Turnover Ratio",
      "Deemed Exports [Table 6(c), GSTR-1] ÷ Total GST Turnover × 100",
-     [(1, G1, ["de_taxable"])], [(1, G1, ["total_taxable_value"])], False),
+     [(1, G1, ["de_taxable"])], [(1, G1, ["tt_taxable"])], False),
     (5, "Exports", "Zero-Rated (SEZ) Turnover Ratio",
      "SEZ Supplies [Table 6B, GSTR-1] ÷ Total Turnover × 100",
      [(1, G1, ["sez_sezwp_taxable", "sez_sezwop_taxable"])],
-     [(1, G1, ["total_taxable_value"])], False),
+     [(1, G1, ["tt_taxable"])], False),
     (30, "Outward", "B2B Credit Note to B2B Sales Ratio",
      "CDNR [Table 9B, GSTR-1] ÷ B2B Sales [Table 4A, GSTR-1] × 100",
      [(1, G1, ["cdnr_taxable"])], [(1, G1, ["b2b_taxable_value"])], True),
@@ -134,14 +135,14 @@ _PCT_RATIOS = [
      [(1, G1, ["exp_expwp_taxable", "exp_expwop_taxable", "sez_sezwp_taxable", "sez_sezwop_taxable"])], True),
     (32, "Outward", "Debit Note to Taxable Turnover Ratio",
      "Debit Notes [Table 9B, GSTR-1] ÷ Total GST Taxable Turnover × 100",
-     [(1, G1, ["debit_notes_taxable"])], [(1, G1, ["total_taxable_value"])], True),
+     [(1, G1, ["debit_notes_taxable"])], [(1, G1, ["tt_taxable"])], True),
     (39, "Outward", "Non-GST Supply Ratio",
      "Non-GST Supplies [Table 8, GSTR-1] ÷ Total Turnover [GSTR-1] × 100",
-     [(1, G1, ["nil_non_gst"])], [(1, G1, ["total_taxable_value"])], False),
+     [(1, G1, ["nil_non_gst"])], [(1, G1, ["tt_taxable"])], False),
     (41, "Outward", "Export Turnover Ratio",
      "Export Turnover [Table 6A/6B, GSTR-1] ÷ Total GST Turnover × 100",
      [(1, G1, ["exp_expwp_taxable", "exp_expwop_taxable", "sez_sezwp_taxable", "sez_sezwop_taxable"])],
-     [(1, G1, ["total_taxable_value"])], False),
+     [(1, G1, ["tt_taxable"])], False),
     (11, "Inward", "ISD Credit to Total ITC Ratio",
      "ISD Credit [Table 4(A)(4), GSTR-3B] ÷ Total ITC Availed [Table 4(A)] × 100",
      [(1, G3B, ["itc_a4_igst", "itc_a4_cgst", "itc_a4_sgst"])],
@@ -432,18 +433,18 @@ def build_linked_workbook(store, out_path):
         # CDN (CDNR+CDNUR) to total turnover, Δ across FYs
         cdn_L = (f"(ABS('{S_G1}'!{get_column_letter(tc_g1[fL])}{fr_g1['cdnr_taxable']})"
                  f"+ABS('{S_G1}'!{get_column_letter(tc_g1[fL])}{fr_g1['cdnur_taxable']}))"
-                 f"/{_g1tot('total_taxable_value', fL)}*100")
+                 f"/{_g1tot('tt_taxable', fL)}*100")
         cdn_0 = (f"(ABS('{S_G1}'!{get_column_letter(tc_g1[f0])}{fr_g1['cdnr_taxable']})"
                  f"+ABS('{S_G1}'!{get_column_letter(tc_g1[f0])}{fr_g1['cdnur_taxable']}))"
-                 f"/{_g1tot('total_taxable_value', f0)}*100")
+                 f"/{_g1tot('tt_taxable', f0)}*100")
         _delta_row(35, "Outward", "YOY Change in Credit Note to Turnover Ratio",
                    "(CDNR+CDNUR) ÷ Total Turnover (latest FY − first FY), percentage points",
                    f'=IFERROR({cdn_L}-{cdn_0},"N/A")')
         # YoY taxable turnover decline (GSTR-1 total)
         _delta_row(27, "Monthly Ratio", "Taxable Turnover Decline (YOY)",
                    "(First FY Turnover − Latest FY Turnover) ÷ First FY × 100",
-                   f'=IFERROR(({_g1tot("total_taxable_value", f0)}-{_g1tot("total_taxable_value", fL)})'
-                   f'/{_g1tot("total_taxable_value", f0)}*100,"N/A")')
+                   f'=IFERROR(({_g1tot("tt_taxable", f0)}-{_g1tot("tt_taxable", fL)})'
+                   f'/{_g1tot("tt_taxable", f0)}*100,"N/A")')
         # Growth mismatch: turnover growth − liability growth (GSTR-3B)
         turn_g = (f"({_g3tot(['taxable_sales'], fL)}-{_g3tot(['taxable_sales'], f0)})"
                   f"/{_g3tot(['taxable_sales'], f0)}*100")

@@ -103,7 +103,8 @@ def _fy_sort_key(fy_label: str) -> int:
 
 _SUM_FIELDS = [
     # GSTR-1 fields
-    "total_taxable_value", "b2b_taxable_value", "b2cs_taxable_value", "b2cl_taxable_value",
+    "total_taxable_value", "tt_taxable", "tt_igst", "tt_cgst", "tt_sgst",
+    "b2b_taxable_value", "b2cs_taxable_value", "b2cl_taxable_value",
     "nil_taxable_value", "nil_exempt", "nil_non_gst",
     "cdnr_taxable", "cdn_value", "cdnur_taxable",
     "deemed_exports", "deemed_export_value",
@@ -220,7 +221,12 @@ def _g3b_itc_4d1(g3b):
 # uses (routes/export.py::_build_ext_row). Every GSTR-1 ratio derives ONLY from
 # these accessors — never from parallel/fallback fields — so a ratio can never
 # show a number that the MOM table doesn't. (Validated by tests/test_ratio_sources.py)
-def g1_total(e):  return e.get("total_taxable_value") or 0          # HSN total (Table 12)
+def g1_total(e):
+    # "Total Taxable Turnover" for ratios = the computed Total Tax
+    # (Σ all supply tables − CDN; the MOM "Total Tax" column), NOT the HSN
+    # Table-12 total. Falls back to HSN if tt_taxable is unavailable.
+    v = e.get("tt_taxable")
+    return v if v is not None else (e.get("total_taxable_value") or 0)
 def g1_b2b(e):    return e.get("b2b_taxable_value") or 0            # Table 4A
 def g1_b2cl(e):   return e.get("b2cl_taxable_value") or 0           # Table 5A/5B
 def g1_b2cs(e):   return e.get("b2cs_taxable_value") or 0           # Table 7
@@ -340,11 +346,11 @@ _TREND_DEFS = [
     (41, "Export Turnover Ratio", "%", "neutral",
      lambda g1, g3b: _pct(
          _g1_export_turnover(g1),
-         g1.get("total_taxable_value") or 0),
+         g1_total(g1)),
      30, 60, False,
      lambda g1, g3b: [
          _comp("Export Turnover", _g1_export_turnover(g1), "Table 6A/6B, GSTR-1"),
-         _comp("Total Taxable Turnover", g1.get("total_taxable_value") or 0, "GSTR-1 Total"),
+         _comp("Total Taxable Turnover", g1_total(g1), "GSTR-1 Total Tax"),
      ]),
 
     (11, "ISD Credit Ratio", "%", "high_bad",
@@ -879,7 +885,7 @@ def _framework_manual_stubs() -> list:
 # ── Cross-form ratios ─────────────────────────────────────────────────────────
 
 def _cross_form_ratios(gstr1: dict, gstr3b: dict) -> list:
-    g1_taxable  = gstr1.get("total_taxable_value") or 0
+    g1_taxable  = g1_total(gstr1)   # computed Total Tax (Σ tables − CDN)
     g3b_taxable = gstr3b.get("total_taxable_value") or gstr3b.get("taxable_sales") or 0
 
     tv_var = None
