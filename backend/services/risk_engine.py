@@ -1191,6 +1191,9 @@ def compute_risk_ratios(store) -> dict:
                     "value":      r["value"],
                     "risk_level": _rl_for(r["value"]),
                     "anomaly":    r.get("anomaly", False),
+                    # This month's own source numbers, so the UI can show what
+                    # each monthly ratio was computed from (click-to-drill).
+                    "components": r.get("components") or [],
                 }
                 for r in rs
             ]

@@ -83,7 +83,70 @@ function DerivationTable({ components, unit, value, expandedView }) {
   )
 }
 
-function PeriodBreakdown({ periods, unit, expandedView }) {
+// Popup: the source numbers a single month's ratio was computed from.
+function MonthCellPopup({ ratioName, period, value, unit, components, onClose }) {
+  const comps = components || []
+  const [num, den] = comps
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="relative z-10 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-4 w-[360px] max-w-[90vw]"
+           onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div>
+            <p className="text-xs font-semibold text-white">{ratioName}</p>
+            <p className="text-[10px] text-slate-500">{period}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-bold font-mono text-blue-300">
+              {value !== null && value !== undefined ? `${value}${unit}` : '—'}
+            </span>
+            <button onClick={onClose} className="text-slate-600 hover:text-slate-300 text-xs px-1">✕</button>
+          </div>
+        </div>
+        {comps.length > 0 ? (
+          <>
+            <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider mb-1.5">Source Numbers · {period}</p>
+            <div className="rounded-lg overflow-hidden border border-slate-700/50">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-slate-800/60">
+                    <th className="text-left px-2 py-1.5 text-[9px] text-slate-500 font-medium">Input</th>
+                    <th className="text-left px-2 py-1.5 text-[9px] text-slate-500 font-medium">Source Table</th>
+                    <th className="text-right px-2 py-1.5 text-[9px] text-slate-500 font-medium">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comps.map((c, i) => (
+                    <tr key={i} className="border-t border-slate-700/30">
+                      <td className="px-2 py-1.5 text-[10px] text-slate-300 font-medium">{c.label}</td>
+                      <td className="px-2 py-1.5 text-[9px] text-slate-500 font-mono">{c.table}</td>
+                      <td className="px-2 py-1.5 text-right text-[10px] font-mono font-bold text-slate-200">
+                        {c.unit === '₹' || c.unit === undefined ? fmtINR(c.value)
+                          : (c.value !== null && c.value !== undefined ? `${c.value}${c.unit}` : '—')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {num && den && value !== null && value !== undefined && (
+              <p className="mt-2 text-[9px] text-slate-600 font-mono">
+                = {fmtINR(num.value)} ÷ {fmtINR(den.value)} × 100
+                <span className="ml-1 font-bold text-slate-300">= {value}{unit}</span>
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-[10px] text-slate-500 italic">No source numbers recorded for this period.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PeriodBreakdown({ periods, unit, expandedView, ratioName }) {
+  const [popup, setPopup] = useState(null)   // { period, value, components }
   if (!periods || periods.length === 0) return null
   const textSz = expandedView ? 'text-[11px]' : 'text-[9px]'
   const highCount = periods.filter(p => p.risk_level === 'HIGH').length
@@ -123,16 +186,19 @@ function PeriodBreakdown({ periods, unit, expandedView }) {
           <tbody>
             {periods.map((p, i) => {
               const s = LEVEL_STYLE[p.risk_level] || LEVEL_STYLE.UNKNOWN
+              const canDrill = (p.components && p.components.length > 0)
               return (
                 <tr
                   key={i}
-                  className={`border-t border-slate-700/20 ${p.risk_level === 'HIGH' ? 'bg-red-500/5' : p.risk_level === 'MEDIUM' ? 'bg-amber-500/5' : ''}`}
+                  onClick={() => canDrill && setPopup(p)}
+                  title={canDrill ? 'Click to see this month’s source numbers' : undefined}
+                  className={`border-t border-slate-700/20 ${p.risk_level === 'HIGH' ? 'bg-red-500/5' : p.risk_level === 'MEDIUM' ? 'bg-amber-500/5' : ''} ${canDrill ? 'cursor-pointer hover:bg-slate-700/30 transition-colors' : ''}`}
                 >
                   <td className={`px-2 py-1 text-slate-400 ${textSz} ${p.anomaly ? 'font-semibold' : ''}`}>
                     {p.anomaly && <AlertTriangle className="w-2.5 h-2.5 inline mr-1 text-amber-400" />}
                     {p.period}
                   </td>
-                  <td className={`px-2 py-1 text-right font-mono font-bold ${s.text} ${textSz}`}>
+                  <td className={`px-2 py-1 text-right font-mono font-bold ${s.text} ${textSz} ${canDrill ? 'underline decoration-dotted decoration-slate-600' : ''}`}>
                     {p.value !== null && p.value !== undefined ? `${p.value}${unit}` : '—'}
                   </td>
                   <td className="px-2 py-1 text-center">
@@ -144,6 +210,16 @@ function PeriodBreakdown({ periods, unit, expandedView }) {
           </tbody>
         </table>
       </div>
+      {popup && (
+        <MonthCellPopup
+          ratioName={ratioName}
+          period={popup.period}
+          value={popup.value}
+          unit={unit}
+          components={popup.components}
+          onClose={() => setPopup(null)}
+        />
+      )}
     </div>
   )
 }
@@ -216,6 +292,7 @@ function RatioCard({ ratio, expanded: expandedView = false }) {
               periods={ratio.period_values}
               unit={ratio.unit}
               expandedView={expandedView}
+              ratioName={ratio.name}
             />
           )}
         </div>

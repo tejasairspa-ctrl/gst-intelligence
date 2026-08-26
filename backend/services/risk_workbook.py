@@ -32,6 +32,7 @@ from services.risk_engine import (
 )
 
 S_G1, S_G3B, S_RR, S_TR = "GSTR-1 Data", "GSTR-3B Data", "Risk Ratios", "Trend"
+S_MR = "Monthly Ratios"
 
 _MON_ABBR = {
     "january": "Jan", "february": "Feb", "march": "Mar", "april": "Apr",
@@ -280,6 +281,12 @@ def _write_data_sheet(ws, fields, groups, fys, title):
         c.font = _font(bold=True, color="FFE08A", size=8); c.alignment = Alignment(horizontal="center")
     ws.row_dimensions[2].height = 16; ws.row_dimensions[3].height = 15
 
+    # period → month column index (union across FYs), for the Monthly Ratios sheet.
+    period_col = {}
+    for fy in fys:
+        for ci, (period, _ext) in zip(fy_month_cols[fy], groups.get(fy, [])):
+            period_col[period] = ci
+
     # Field rows
     field_row, present = {}, set()
     r = 4
@@ -308,14 +315,21 @@ def _write_data_sheet(ws, fields, groups, fys, title):
         r += 1
 
     ws.freeze_panes = "B4"
-    return field_row, fy_total_col, present
+    return field_row, fy_total_col, present, period_col
 
 
 def _expr(terms, fy, fmaps):
-    """Build an Excel sub-expression summing FY-total cells across terms."""
+    """Build an Excel sub-expression summing cells across terms.
+
+    `fy` is a key into each form's column map (fcol) — a financial year for the
+    per-FY sheet, or a period label for the Monthly Ratios sheet. Terms whose
+    form has no column for that key are skipped (e.g. a GSTR-3B-only month).
+    """
     out = ""
     for coef, form, keys in terms:
         sheet, frow, fcol = fmaps[form]
+        if fy not in fcol:
+            continue
         col = get_column_letter(fcol[fy])
         cells = [f"'{sheet}'!{col}{frow[k]}" for k in keys if k in frow]
         if not cells:
@@ -338,13 +352,15 @@ def build_linked_workbook(store, out_path):
 
     wb = openpyxl.Workbook()
     ws_g1 = wb.active; ws_g1.title = S_G1
-    fr_g1, tc_g1, pres_g1 = _write_data_sheet(
+    fr_g1, tc_g1, pres_g1, pc_g1 = _write_data_sheet(
         ws_g1, _G1_FIELDS, g1_groups, fys, "GSTR-1 — Monthly Source Data & FY Totals")
     ws_g3b = wb.create_sheet(S_G3B)
-    fr_g3b, tc_g3b, pres_g3b = _write_data_sheet(
+    fr_g3b, tc_g3b, pres_g3b, pc_g3b = _write_data_sheet(
         ws_g3b, _G3B_FIELDS, g3b_groups, fys, "GSTR-3B — Monthly Source Data & FY Totals")
 
     fmaps = {G1: (S_G1, fr_g1, tc_g1), G3B: (S_G3B, fr_g3b, tc_g3b)}
+    # Month-keyed maps (period → data-sheet column) for the Monthly Ratios sheet.
+    fmaps_month = {G1: (S_G1, fr_g1, pc_g1), G3B: (S_G3B, fr_g3b, pc_g3b)}
 
     # ── Risk Ratios sheet ─────────────────────────────────────────────────────
     ws = wb.create_sheet(S_RR, 0)
@@ -474,8 +490,48 @@ def build_linked_workbook(store, out_path):
     # ── Trend sheet (FY × ratio matrix, references Risk Ratios cells) ──────────
     _write_trend_sheet(wb, fys, rr_cell)
 
+    # ── Monthly Ratios sheet (per-month ratio formulas → monthly source cells) ─
+    all_periods = sorted(set(pc_g1) | set(pc_g3b), key=_period_sort_key)
+    _write_monthly_sheet(wb, all_periods, fmaps_month)
+
     wb.save(out_path)
     return out_path
+
+
+def _write_monthly_sheet(wb, periods, fmaps_month):
+    """Per-month ratio grid: every % ratio computed for each month directly from
+    that month's source cells (numerator month cell ÷ denominator month cell)."""
+    ws = wb.create_sheet(S_MR)
+    ws.sheet_view.showGridLines = False
+    headers = ["Sl", "Category", "Ratio (DGARM Framework)"] + [_mon_label(p) for p in periods]
+    widths = [6, 16, 40] + [12] * len(periods)
+    mon_col0 = 4
+    for ci, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+    t = ws.cell(1, 1, "GST Risk Intelligence — Monthly Ratios  |  each cell = that month's "
+                      "numerator ÷ denominator (live formula → the month's source cells)")
+    t.fill = _fill(C_TITLE); t.font = _font(bold=True, color="5BA3D9", size=11)
+    t.alignment = Alignment(horizontal="left", vertical="center", indent=1); ws.row_dimensions[1].height = 26
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(2, ci, h); c.fill = _fill(C_GRP)
+        c.font = _font(bold=True, color="FFFFFF", size=9)
+        c.alignment = Alignment(horizontal="center" if ci >= mon_col0 else "left", vertical="center", indent=1)
+    ws.row_dimensions[2].height = 18
+
+    r = 3
+    for sl, cat, name, ftext, num_t, den_t, absf in _PCT_RATIOS:
+        ws.cell(r, 1, sl).font = _font(size=8)
+        ws.cell(r, 2, cat).font = _font(size=8)
+        ws.cell(r, 3, name).font = _font(size=8, color="33475B")
+        for i, p in enumerate(periods):
+            cell = ws.cell(r, mon_col0 + i, _pct_formula(num_t, den_t, absf, p, fmaps_month))
+            cell.number_format = '0.00"%"'; cell.font = _font(size=8, color="11243A")
+            cell.alignment = Alignment(horizontal="center")
+        for ci in range(1, len(headers) + 1):
+            ws.cell(r, ci).border = _BORDER
+        r += 1
+    ws.freeze_panes = "D3"
 
 
 # 8 trend ratios shown on screen → (sl, label, direction)
