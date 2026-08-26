@@ -1131,39 +1131,50 @@ def compute_risk_ratios(store) -> dict:
             by_name[n].append(r)
         result = []
         for name, rs in by_name.items():
-            vals = [r["value"] for r in rs if r["value"] is not None]
-            avg  = round(sum(vals) / len(vals), 2) if vals else None
             base = rs[0].copy()
-            base["value"]     = avg
-            base["available"] = avg is not None
+            unit = rs[0].get("unit", "%")
+
+            # ── Component TOTALS (sum across all months, not average) ──────────
+            summed_comps = []
+            for comp in (rs[0].get("components") or []):
+                lbl = comp["label"]
+                cvals = [c["value"] for r in rs
+                         for c in (r.get("components") or [])
+                         if c["label"] == lbl and c["value"] is not None]
+                summed_comps.append({**comp, "value": round(sum(cvals), 2) if cvals else None})
+            if summed_comps:
+                base["components"] = summed_comps
+
+            # ── Headline value = RATIO OF TOTALS (per user: total, not average) ─
+            # Numerator = first component total, denominator = last component total
+            # (components are stored abs where the ratio needs it, so no re-abs).
+            num = summed_comps[0]["value"] if summed_comps else None
+            den = summed_comps[-1]["value"] if len(summed_comps) >= 2 else None
+            if "Turnover Mismatch" in name and num is not None and den is not None:
+                # |GSTR-1 − GSTR-3B| ÷ max(both) × 100
+                val = _pct(abs(num - den), max(abs(num), abs(den))) if max(abs(num), abs(den)) else None
+            elif unit == "₹" and num is not None:
+                val = round((num or 0) - (den or 0), 2)          # e.g. RCM gap = Σliab − Σitc
+            elif unit == "%" and len(summed_comps) >= 2:
+                val = _pct(num, den)                              # Σnumerator ÷ Σdenominator × 100
+            else:
+                # No usable components — fall back to averaging the monthly values.
+                vals = [r["value"] for r in rs if r["value"] is not None]
+                val = round(sum(vals) / len(vals), 2) if vals else None
+
+            base["value"]     = val
+            base["available"] = val is not None
             base["anomaly"]   = any(r.get("anomaly") for r in rs)
-            # Recompute risk_level from the averaged value using stored thresholds.
-            # This prevents one bad month from permanently flagging the average as HIGH.
+            # Risk level from the total-based value using the stored thresholds.
             lp = base.get("level_params")
             if callable(lp):
-                base["risk_level"] = lp(avg)
-            elif lp is not None and avg is not None:
+                base["risk_level"] = lp(val)
+            elif lp is not None and val is not None:
                 base["risk_level"] = _level(
-                    avg, lp["low_ok"], lp["high_warn"], lp.get("invert", False)
+                    val, lp["low_ok"], lp["high_warn"], lp.get("invert", False)
                 )
             else:
                 base["risk_level"] = rs[0].get("risk_level", "UNKNOWN")
-
-            # Average component values so the drill-down reflects the averaged data
-            if rs[0].get("components"):
-                averaged_comps = []
-                for comp in rs[0]["components"]:
-                    lbl = comp["label"]
-                    cvals = [
-                        c["value"] for r in rs
-                        for c in (r.get("components") or [])
-                        if c["label"] == lbl and c["value"] is not None
-                    ]
-                    averaged_comps.append({
-                        **comp,
-                        "value": round(sum(cvals) / len(cvals), 2) if cvals else None,
-                    })
-                base["components"] = averaged_comps
 
             # Per-period breakdown — lets the UI show which specific month/year
             # is driving the risk without losing the averaged view

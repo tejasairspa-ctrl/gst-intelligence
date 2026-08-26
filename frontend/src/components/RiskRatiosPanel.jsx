@@ -107,7 +107,7 @@ function PeriodBreakdown({ periods, unit, expandedView }) {
             </span>
           )}
           <span className={`text-slate-600 ${textSz}`}>
-            avg of {periods.filter(p => p.value !== null).length} periods
+            total of {periods.filter(p => p.value !== null).length} periods
           </span>
         </div>
       </div>
