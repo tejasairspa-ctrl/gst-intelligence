@@ -440,6 +440,14 @@ def _gstr1_ratios(ext: dict) -> list:
     export_taxable = _g1_export_turnover(ext)
     debit_notes    = ext.get("debit_notes_taxable") or 0
 
+    # CDNUR split by note type (modern 9B Unregistered). 30A uses the B2CL portion,
+    # 31 uses the Export portion (EXPWP+EXPWOP). Falls back to the combined CDNUR
+    # figure for 30A on older formats that don't provide the type breakdown.
+    cdnur_b2cl     = ext.get("cdnur_b2cl_taxable")
+    cdnur_export   = ext.get("cdnur_export_taxable")
+    cdnur_b2cl_num   = cdnur_b2cl   if cdnur_b2cl   is not None else cdnur_taxable
+    cdnur_export_num = cdnur_export if cdnur_export is not None else 0.0
+
     # Old compact GSTR-1 layout (FY≈2020-21/21-22) merges B2B+SEZ+DE into one row,
     # so b2b_taxable_value is not pure B2B — exclude such years from B2B-denominator
     # ratios (per user decision). Total-turnover ratios still use the correct HSN total.
@@ -449,8 +457,8 @@ def _gstr1_ratios(ext: dict) -> list:
     r5   = _pct(sez_supplies, total_taxable)   if total_taxable else None
     # CDN values are stored as negatives (they reduce liability) — use abs()
     r30  = None if legacy_b2b else (_pct(abs(cdnr_taxable), abs(b2b_taxable)) if b2b_taxable else None)
-    r30a = _pct(abs(cdnur_taxable), abs(b2cl_taxable))   if b2cl_taxable  else None
-    r31  = _pct(abs(cdnur_taxable), abs(export_taxable)) if export_taxable else None
+    r30a = _pct(abs(cdnur_b2cl_num), abs(b2cl_taxable))     if b2cl_taxable  else None
+    r31  = _pct(abs(cdnur_export_num), abs(export_taxable)) if export_taxable else None
     r32  = _pct(abs(debit_notes),   abs(total_taxable))  if total_taxable  else None
     r39  = _pct(nil_non_gst, total_taxable)    if total_taxable else None
     r41  = _pct(export_taxable, total_taxable) if total_taxable else None
@@ -495,40 +503,28 @@ def _gstr1_ratios(ext: dict) -> list:
 
         _r("30A", "DGARM #31c", "Outward",
            "Unregistered Credit Note to B2CL Sales Ratio", r30a, "%",
-           "CDNUR [Table 9B, GSTR-1] ÷ B2CL Sales [Table 5, GSTR-1] × 100",
+           "B2CL Credit Notes [Table 9B (B2CL), GSTR-1] ÷ B2CL Sales [Table 5, GSTR-1] × 100",
            "< 5% normal; > 15% high risk",
            "High unregistered credit note ratio vs B2CL sales may indicate inflated sales to unregistered persons subsequently reversed via credit notes.",
            _level(r30a, 5, 15),
            anomaly=(r30a is not None and r30a > 15),
            level_params={"low_ok": 5, "high_warn": 15},
            components=[
-               _comp("Unregistered Credit Notes (CDNUR)", abs(cdnur_taxable), "Table 9B, GSTR-1"),
+               _comp("B2CL Credit Notes (9B)", abs(cdnur_b2cl_num), "Table 9B — B2CL, GSTR-1"),
                _comp("B2CL Sales (Unregistered)", abs(b2cl_taxable), "Table 5, GSTR-1"),
            ]),
 
         _r(31, "DGARM #31b", "Outward",
            "Export Credit Note to Export Turnover Ratio", r31, "%",
-           "Export-related CDNUR [Table 9B, GSTR-1] ÷ Export Turnover [Table 6A/6B, GSTR-1] × 100",
+           "Export Credit Notes [Table 9B (EXPWP+EXPWOP), GSTR-1] ÷ Export Turnover [Table 6A/6B incl. SEZ, GSTR-1] × 100",
            "< 5% normal; drastic change warrants scrutiny",
            "High ratio of export credit notes to export turnover may indicate inflated export values or fake export refund claims.",
            _level(r31, 5, 15),
            anomaly=(r31 is not None and r31 > 15),
            level_params={"low_ok": 5, "high_warn": 15},
            components=[
-               _comp("Export Credit Notes (CDNUR)", abs(cdnur_taxable), "Table 9B, GSTR-1"),
-               _comp("Export Turnover", abs(export_taxable), "Table 6A/6B, GSTR-1"),
-           ]),
-
-        _r(32, "DGARM #32", "Outward",
-           "Debit Note to Taxable Turnover Ratio", r32, "%",
-           "Debit Notes [Table 9B, GSTR-1] ÷ Total GST Taxable Turnover × 100",
-           "< 5% normal",
-           "High debit note ratio indicates under-invoicing corrected via debit notes, or inflated subsequent claims.",
-           _level(r32, 5, 15),
-           level_params={"low_ok": 5, "high_warn": 15},
-           components=[
-               _comp("Debit Notes", abs(debit_notes), "Table 9B, GSTR-1"),
-               _comp("Total Taxable Turnover", abs(total_taxable), "GSTR-1 Total"),
+               _comp("Export Credit Notes (9B EXPWP+EXPWOP)", abs(cdnur_export_num), "Table 9B — Export, GSTR-1"),
+               _comp("Export Turnover (incl. SEZ)", abs(export_taxable), "Table 6A/6B, GSTR-1"),
            ]),
 
         _r(39, "Derived", "Outward",
@@ -580,14 +576,24 @@ def _gstr3b_ratios(ext: dict) -> list:
     itc_reversed = ext.get("itc_reversed") or (itc_rev_igst + itc_rev_cgst + itc_rev_sgst)
     itc_net      = itc_availed - itc_reversed
 
-    # ISD and temporary reversal (may not be present in all GSTR-3B formats)
-    itc_isd      = ext.get("itc_isd") or 0
-    # Temporary reversal = Table 4(B)(2) "Others" (reclaimable). Prefer the parsed
-    # 4(B)(2) sub-row (itc_b2_*); fall back to the legacy itc_temp_reversed field.
+    # ISD credit — Table 4(A)(4), head-wise (IGST/CGST/SGST). Prefer the parsed
+    # 4(A)(4) sub-row; fall back to the legacy single itc_isd field.
+    itc_isd_igst = ext.get("itc_a4_igst") or 0
+    itc_isd_cgst = ext.get("itc_a4_cgst") or 0
+    itc_isd_sgst = ext.get("itc_a4_sgst") or 0
+    _a4 = _g3b_sum3(ext, "itc_a4_igst", "itc_a4_cgst", "itc_a4_sgst")
+    itc_isd      = _a4 if _a4 is not None else (ext.get("itc_isd") or 0)
+
+    # Temporary reversal = Table 4(B)(2) "Others" (reclaimable), head-wise.
+    # Prefer the parsed 4(B)(2) sub-row (itc_b2_*); fall back to itc_temp_reversed.
+    itc_temp_igst = ext.get("itc_b2_igst") or 0
+    itc_temp_cgst = ext.get("itc_b2_cgst") or 0
+    itc_temp_sgst = ext.get("itc_b2_sgst") or 0
     _b2 = _g3b_sum3(ext, "itc_b2_igst", "itc_b2_cgst", "itc_b2_sgst")
     itc_temp_rev = _b2 if _b2 is not None else (ext.get("itc_temp_reversed") or 0)
 
-    # Payments — Table 6.1
+    # Payments — Table 6.1 (the cash_paid_* / tax_payable_* rows are the "other
+    # than reverse charge" outward-supply rows; RCM sits in its own 6.1 row).
     cash_igst = ext.get("cash_paid_igst") or ext.get("cash_igst") or 0
     cash_cgst = ext.get("cash_paid_cgst") or ext.get("cash_cgst") or 0
     cash_sgst = ext.get("cash_paid_sgst") or ext.get("cash_sgst") or 0
@@ -600,9 +606,22 @@ def _gstr3b_ratios(ext: dict) -> list:
     _itc_paid_raw = ext.get("tax_paid_itc") or (itc_used_igst + itc_used_cgst + itc_used_sgst) or None
     itc_paid = _itc_paid_raw if _itc_paid_raw is not None else None
 
-    # RCM — Table 3.1(d)
+    # RCM — Table 3.1(d) liability, and RCM cash paid (Table 6.1 reverse-charge row).
     rcm_liability = ext.get("s31d_rcm_igst") or ext.get("rcm_liability") or ext.get("rcm_igst") or 0
     rcm_itc       = ext.get("rcm_itc") or 0
+    rcm_cash      = _g3b_sum3(ext, "cash_paid_rcm_igst", "cash_paid_rcm_cgst", "cash_paid_rcm_sgst") or 0
+
+    # Cash Payment ratio (Sl.43) — excludes RCM (RCM is always 100% cash and would
+    # inflate the ratio). Non-RCM cash ÷ non-RCM liability (Table 6.1 col-2 outward).
+    cash_non_rcm = _g3b_sum3(ext, "cash_paid_igst", "cash_paid_cgst", "cash_paid_sgst")
+    if cash_non_rcm is None:
+        cash_non_rcm = max(float(cash_paid or 0) - float(rcm_cash or 0), 0)
+    _pay_non_rcm = _g3b_sum3(ext, "tax_payable_igst", "tax_payable_cgst", "tax_payable_sgst")
+    liab_non_rcm = _pay_non_rcm if _pay_non_rcm is not None else total_liab
+
+    # ITC-to-Turnover (Sl.20) denominator — total taxable turnover 3.1(a)+3.1(b).
+    zero_rated = ext.get("zero_rated_sales") or ext.get("s31b_taxable") or 0
+    taxable_turnover_20 = (taxable or 0) + (zero_rated or 0)
 
     # Export turnover (Table 3.1(b)) — not always extracted in GSTR-3B parser
     export_turn = ext.get("export_turnover") or ext.get("export_taxable_value") or 0
@@ -611,11 +630,9 @@ def _gstr3b_ratios(ext: dict) -> list:
     r13  = _pct(itc_reversed, itc_availed) if itc_availed  else None
     r16  = _pct(itc_availed, export_turn)  if export_turn  else None
     r18  = _pct(itc_temp_rev, itc_availed) if itc_availed  else None
-    r20  = _pct(itc_net, taxable)          if taxable      else None
-    r29  = _pct(total_liab, itc_net)       if itc_net      else None
+    r20  = _pct(itc_net, taxable_turnover_20) if taxable_turnover_20 else None
     r42  = _pct(itc_paid, total_liab)      if total_liab   else None
-    r43  = _pct(cash_paid, total_liab)     if total_liab   else None
-    r45  = _pct(cash_paid, total_liab)     if total_liab   else None
+    r43  = _pct(cash_non_rcm, liab_non_rcm) if liab_non_rcm else None
     r48  = round(float(rcm_liability) - float(rcm_itc or 0), 2) if rcm_liability else None
 
     return [
@@ -627,8 +644,11 @@ def _gstr3b_ratios(ext: dict) -> list:
            _level(r11, 15, 30),
            level_params={"low_ok": 15, "high_warn": 30},
            components=[
-               _comp("ISD Credit", itc_isd, "Table 4(A)(4), GSTR-3B"),
+               _comp("ISD Credit (Total)", itc_isd, "Table 4(A)(4), GSTR-3B"),
                _comp("Total ITC Availed", itc_availed, "Table 4(A), GSTR-3B"),
+               _comp("ISD Credit — IGST", itc_isd_igst, "Table 4(A)(4)"),
+               _comp("ISD Credit — CGST", itc_isd_cgst, "Table 4(A)(4)"),
+               _comp("ISD Credit — SGST", itc_isd_sgst, "Table 4(A)(4)"),
            ]),
 
         _r(13, "DGARM #18", "Inward",
@@ -666,33 +686,24 @@ def _gstr3b_ratios(ext: dict) -> list:
            components=[
                _comp("ITC Temporarily Reversed", itc_temp_rev, "Table 4(B)(2), GSTR-3B"),
                _comp("ITC Availed", itc_availed, "Table 4(A)(5), GSTR-3B"),
+               _comp("Temp Reversal — IGST", itc_temp_igst, "Table 4(B)(2)"),
+               _comp("Temp Reversal — CGST", itc_temp_cgst, "Table 4(B)(2)"),
+               _comp("Temp Reversal — SGST", itc_temp_sgst, "Table 4(B)(2)"),
            ]),
 
         _r(20, "DGARM #20", "Inward",
            "ITC to Taxable Turnover Ratio", r20, "%",
-           "Net ITC [Table 4(A)−4(D)(1), GSTR-3B] ÷ Total Turnover [Table 3.1, GSTR-3B] × 100",
+           "Net ITC [Table 4(A)−4(B), GSTR-3B] ÷ Total Taxable Turnover [Table 3.1(a)+(b), GSTR-3B] × 100",
            "< 60% for most sectors; > 80% indicates high purchase-to-sales ratio",
            "Very high ITC to turnover ratio signals low value addition — a strong indicator of fake invoicing or ineligible ITC. Also verify in GSTR-9: Table 6O−6H ÷ Table 5N.",
            _level(r20, 60, 80),
            anomaly=(r20 is not None and r20 > 80),
            level_params={"low_ok": 60, "high_warn": 80},
            components=[
-               _comp("Net ITC (Availed − Reversed)", itc_net, "Table 4(A)−4(D)(1), GSTR-3B"),
+               _comp("Net ITC (Availed − Reversed)", itc_net, "Table 4(A)−4(B), GSTR-3B"),
+               _comp("Total Taxable Turnover", taxable_turnover_20, "Table 3.1(a)+(b), GSTR-3B"),
                _comp("ITC Availed", itc_availed, "Table 4(A), GSTR-3B"),
                _comp("ITC Reversed", itc_reversed, "Table 4(B), GSTR-3B"),
-               _comp("Taxable Turnover", taxable, "Table 3.1(a), GSTR-3B"),
-           ]),
-
-        _r(29, "DGARM #1", "Output-Input",
-           "Output Tax to Net ITC Ratio", r29, "%",
-           "Total Tax Liability [Table 3.1(a+b), GSTR-3B] ÷ Net ITC Availed [Table 4A−4D(1), GSTR-3B] × 100",
-           "> 100% is normal; < 50% is a risk flag",
-           "A low ratio of output tax to ITC indicates higher purchases relative to sales — may signal ITC inflation or fake procurement.",
-           _level(r29, 50, 80, invert=True),
-           level_params={"low_ok": 50, "high_warn": 80, "invert": True},
-           components=[
-               _comp("Total Tax Liability (IGST+CGST+SGST)", total_liab, "Table 3.1(a+b), GSTR-3B"),
-               _comp("Net ITC (Availed − Reversed)", itc_net, "Table 4A−4D(1), GSTR-3B"),
            ]),
 
         _r(42, "DGARM #7", "Payment",
@@ -703,33 +714,24 @@ def _gstr3b_ratios(ext: dict) -> list:
            _level(r42, 80, 90),
            level_params={"low_ok": 80, "high_warn": 90},
            components=[
-               _comp("Tax Paid via ITC", itc_paid, "Table 6.1, GSTR-3B"),
+               _comp("Tax Paid via ITC (Total)", itc_paid, "Table 6.1, GSTR-3B"),
                _comp("Total Tax Liability", total_liab, "Table 6.1(2), GSTR-3B"),
+               _comp("Paid via ITC — IGST", itc_used_igst, "Table 6.1"),
+               _comp("Paid via ITC — CGST", itc_used_cgst, "Table 6.1"),
+               _comp("Paid via ITC — SGST", itc_used_sgst, "Table 6.1"),
            ]),
 
         _r(43, "DGARM #8", "Payment",
            "Cash Payment to Total Liability Ratio", r43, "%",
-           "Tax Paid through Cash [Table 6.1, GSTR-3B] ÷ Total Tax Liability [Table 6.1(2)] × 100",
+           "Non-RCM Cash Paid [Table 6.1, GSTR-3B] ÷ Non-RCM Tax Liability [Table 6.1(2)] × 100  (RCM excluded — always 100% cash)",
            "< 5% is a risk flag",
-           "Very low cash payment ratio suggests almost all liability is offset by ITC — may indicate excess or fake ITC claims.",
+           "Very low cash payment ratio suggests almost all liability is offset by ITC — may indicate excess or fake ITC claims. RCM liability is excluded because it is always discharged fully in cash and would otherwise inflate the ratio.",
            _level(r43, 5, 20, invert=True),
            level_params={"low_ok": 5, "high_warn": 20, "invert": True},
            components=[
-               _comp("Tax Paid via Cash", cash_paid, "Table 6.1, GSTR-3B"),
-               _comp("Total Tax Liability", total_liab, "Table 6.1(2), GSTR-3B"),
-           ]),
-
-        _r(45, "Derived", "Payment",
-           "Minimum 1% Cash Payment Compliance", r45, "%",
-           "Total Cash Paid ÷ Total Tax Payable [Table 6.1, GSTR-3B] × 100",
-           "Minimum 1% of tax liability must be paid in cash each year",
-           "Cash payment below 1% of total tax liability may indicate non-compliance with mandatory minimum cash payment rules.",
-           "LOW" if (r45 is not None and r45 >= 1.0) else "HIGH",
-           anomaly=(r45 is not None and r45 < 1.0),
-           level_params=lambda v: "LOW" if (v is not None and v >= 1.0) else "HIGH",
-           components=[
-               _comp("Tax Paid via Cash", cash_paid, "Table 6.1, GSTR-3B"),
-               _comp("Total Tax Liability", total_liab, "Table 6.1(2), GSTR-3B"),
+               _comp("Cash Paid (excl. RCM)", cash_non_rcm, "Table 6.1, GSTR-3B"),
+               _comp("Tax Liability (excl. RCM)", liab_non_rcm, "Table 6.1(2), GSTR-3B"),
+               _comp("RCM Cash Paid (excluded)", rcm_cash, "Table 6.1 (RCM row)"),
            ]),
 
         _r(48, "DGARM #16r", "RCM",

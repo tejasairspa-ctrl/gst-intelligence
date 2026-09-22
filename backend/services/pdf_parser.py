@@ -1618,6 +1618,29 @@ def _gstr1_map_cols(nums: List[str]) -> Dict[str, float]:
     return result
 
 
+def _gstr1_cdnur_types(section_text: str) -> Optional[Dict[str, float]]:
+    """Split the modern-format 9B (Unregistered) CDNUR section into taxable
+    value by note Type. The GST-portal PDF lists an "Unregistered Type" block:
+
+        - B2CL   0 Note   0.00 0.00 0.00
+        - EXPWP  0 NNote  0.00 0.00 0.00
+        - EXPWOP 2 Note  -48,13,072.00
+
+    Row shape: '- <TYPE> <count> Note <taxable> …'. CDNUR is always inter-state
+    (CGST/SGST = 0), so only the taxable base is captured per type. Negative
+    values (net credit) are preserved. Returns {'b2cl','expwp','expwop'} taxable
+    or None when the type block is absent (older PDF formats without the split).
+    """
+    if not re.search(r"Unregistered\s+Type", section_text, re.IGNORECASE):
+        return None
+    out: Dict[str, float] = {}
+    for typ in ("B2CL", "EXPWP", "EXPWOP"):
+        m = re.search(rf"-\s*{typ}\s+\d+\s+N?Note\s+(-?[\d,]+(?:\.\d+)?)",
+                      section_text, re.IGNORECASE)
+        out[typ.lower()] = _gstr1_parse_amount(m.group(1)) if m else 0.0
+    return out
+
+
 def _gstr1_map_cdn_cols(nums: List[str]) -> Dict[str, float]:
     """
     CDN-specific column mapper (CDNR / CDNUR).
@@ -2084,6 +2107,15 @@ def extract_gstr1_sections(text: str) -> Dict[str, Any]:
             # Always enforce CGST = SGST = 0 for CDNUR (always inter-state)
             cdnur_data["cgst"] = 0.0
             cdnur_data["sgst"] = 0.0
+            # Split by note Type (B2CL vs EXPWP/EXPWOP) when the modern PDF
+            # provides the "Unregistered Type" breakdown — drives ratios 30A/31.
+            _cdnur_types = _gstr1_cdnur_types(sec_cdnur)
+            if _cdnur_types is not None:
+                sections["cdnur_b2cl"]   = _cdnur_types["b2cl"]
+                sections["cdnur_expwp"]  = _cdnur_types["expwp"]
+                sections["cdnur_expwop"] = _cdnur_types["expwop"]
+                print(f"[CDNUR TYPES] b2cl={_cdnur_types['b2cl']:.2f} "
+                      f"expwp={_cdnur_types['expwp']:.2f} expwop={_cdnur_types['expwop']:.2f}")
             if cdnur_data["taxable"] != 0.0:   # negative CDN values are valid
                 sections["cdnur"] = cdnur_data
                 _cdnur_igst = cdnur_data["igst"]
@@ -2548,6 +2580,11 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         "cdnur_igst": None,
         "cdnur_cgst": None,
         "cdnur_sgst": None,
+        # CDNUR by note type (modern 9B Unregistered split) — ratios 30A / 31
+        "cdnur_b2cl_taxable": None,
+        "cdnur_expwp_taxable": None,
+        "cdnur_expwop_taxable": None,
+        "cdnur_export_taxable": None,
         # Exports
         "export_value": None,
         "export_igst": None,
@@ -2803,6 +2840,20 @@ def parse_gstr1(text: str, tables: List[List[List]]) -> Dict[str, Any]:
         data["cdnur_sgst"]    = cdnur_sec["sgst"]
         logger.info("[GSTR-1] CDNUR mapped: taxable=%s igst=%s",
                     cdnur_sec["taxable"], cdnur_sec["igst"])
+
+    # CDNUR type split (modern format): B2CL vs Export (EXPWP+EXPWOP) — ratios 30A/31.
+    if "cdnur_b2cl" in sections:
+        data["cdnur_b2cl_taxable"]   = sections.get("cdnur_b2cl")
+        data["cdnur_expwp_taxable"]  = sections.get("cdnur_expwp")
+        data["cdnur_expwop_taxable"] = sections.get("cdnur_expwop")
+        data["cdnur_export_taxable"] = round((sections.get("cdnur_expwp") or 0.0)
+                                             + (sections.get("cdnur_expwop") or 0.0), 2)
+    elif data.get("cdnur_taxable"):
+        # Older PDF format without the "Unregistered Type" breakdown: treat the
+        # combined CDNUR as B2CL (historical assumption) so ratio 30A is preserved;
+        # export CDN can't be isolated here, so ratio 31 numerator is 0.
+        data["cdnur_b2cl_taxable"]   = data["cdnur_taxable"]
+        data["cdnur_export_taxable"] = 0.0
 
     # ── Enforce 0.0 defaults for all CDN GST fields (never leave None) ───────
     for k in ("cdn_igst", "cdn_cgst", "cdn_sgst",
