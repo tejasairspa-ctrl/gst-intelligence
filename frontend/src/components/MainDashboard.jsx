@@ -16,6 +16,7 @@ import { TaxDistributionChart, ITCChart, SalesBreakdownChart } from './Analytics
 import FileUpload from './FileUpload'
 import { exportMOMExcel, exportMOM3BExcel, exportMOM9Excel } from '../api/client'
 import GSTR2BCompiler from './GSTR2BCompiler'
+import GSTR2ACompiler from './GSTR2ACompiler'
 
 // ── Number formatter (Raw / Lakhs / Crores) ──────────────────────────────────
 function fmtVal(val, mode = 'raw') {
@@ -1873,6 +1874,7 @@ export default function MainDashboard() {
           <span className="text-sm font-semibold text-white">
             {currentMode === 'kpi' ? 'KPI Dashboard'
               : currentMode === 'mom' ? 'Month-over-Month'
+              : currentMode === '2a' ? 'GSTR-2A Compiler'
               : 'GSTR-2B Compiler'}
           </span>
           {activeFile && currentMode === 'kpi' && (
@@ -1896,7 +1898,7 @@ export default function MainDashboard() {
             className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5"
             title="Toggle dashboard view"
           >
-            {[['kpi','KPI'],['mom','MOM'],['2b','2B']].map(([m, label]) => (
+            {[['kpi','KPI'],['mom','MOM'],['2a','2A'],['2b','2B']].map(([m, label]) => (
               <button
                 key={m}
                 onClick={() => showDashboard(m)}
@@ -1904,7 +1906,9 @@ export default function MainDashboard() {
                   currentMode === m
                     ? m === '2b'
                       ? 'bg-violet-600 text-white shadow-sm'
-                      : 'bg-blue-600 text-white shadow-sm'
+                      : m === '2a'
+                        ? 'bg-teal-600 text-white shadow-sm'
+                        : 'bg-blue-600 text-white shadow-sm'
                     : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
@@ -1913,8 +1917,8 @@ export default function MainDashboard() {
             ))}
           </div>
 
-          {/* Upload another file — hidden in 2B mode (panel has its own upload) */}
-          {currentMode !== '2b' && <FileUpload compact />}
+          {/* Upload another file — hidden in 2A/2B mode (panel has its own upload) */}
+          {currentMode !== '2b' && currentMode !== '2a' && <FileUpload compact />}
         </div>
       </div>
 
@@ -1927,6 +1931,8 @@ export default function MainDashboard() {
           />
         ) : currentMode === '2b' ? (
           <GSTR2BCompiler />
+        ) : currentMode === '2a' ? (
+          <GSTR2ACompiler />
         ) : (
           <MOMDashboard
             uploadedFiles={uploadedFiles}

@@ -144,6 +144,36 @@ export const compileGSTR2B = async (files, onProgress) => {
   return { url, name }
 }
 
+// ── GSTR-2A Compiler ─────────────────────────────────────────────────────────
+
+/**
+ * Upload multiple GSTR-2A .xlsx files and receive the compiled workbook.
+ * Returns a Blob URL the caller can use to trigger a download.
+ */
+export const compileGSTR2A = async (files, onProgress) => {
+  const form = new FormData()
+  files.forEach((f) => form.append('files', f))
+
+  const response = await fetch('/api/gstr2a/compile', {
+    method: 'POST',
+    body: form,
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: response.statusText }))
+    throw new Error(err.error || 'Compilation failed')
+  }
+
+  const blob = await response.blob()
+  const url  = URL.createObjectURL(blob)
+
+  const cd    = response.headers.get('Content-Disposition') || ''
+  const match = cd.match(/filename="?([^"]+)"?/)
+  const name  = match ? match[1] : 'GSTR2A_Compiled.xlsx'
+
+  return { url, name }
+}
+
 // ── Risk Intelligence ─────────────────────────────────────────────────────────
 
 export const getRiskRatios   = () => api.get('/intelligence/ratios')

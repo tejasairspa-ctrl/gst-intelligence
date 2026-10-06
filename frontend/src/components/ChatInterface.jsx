@@ -3,6 +3,7 @@ import { Send, Sparkles, Bot, User, Zap, FileSpreadsheet, FileText } from 'lucid
 import { useApp } from '../context/AppContext'
 import FileUpload from './FileUpload'
 import GSTR2BCompiler from './GSTR2BCompiler'
+import GSTR2ACompiler from './GSTR2ACompiler'
 
 // ── Message formatter ─────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ export default function ChatInterface() {
   }
 
   // ── Pre-upload landing ──────────────────────────────────────────────────────
-  const [landingTab, setLandingTab] = useState('pdf')  // 'pdf' | '2b'
+  const [landingTab, setLandingTab] = useState('pdf')  // 'pdf' | '2a' | '2b'
 
   if (!hasDashboard) {
     return (
@@ -164,6 +165,17 @@ export default function ChatInterface() {
             GST Returns (PDF)
           </button>
           <button
+            onClick={() => setLandingTab('2a')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+              landingTab === '2a'
+                ? 'bg-teal-600 text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            GSTR-2A Consolidate (Excel)
+          </button>
+          <button
             onClick={() => setLandingTab('2b')}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
               landingTab === '2b'
@@ -191,6 +203,10 @@ export default function ChatInterface() {
               </div>
             </div>
           </>
+        ) : landingTab === '2a' ? (
+          <div className="w-full max-w-2xl">
+            <GSTR2ACompiler />
+          </div>
         ) : (
           <div className="w-full max-w-2xl">
             <GSTR2BCompiler />

@@ -2,7 +2,14 @@
 GST Intelligence API — Flask entry point (Python 3.14 compatible)
 """
 import os
+import sys
 import logging
+
+# Allow launching as `python backend/main.py` from any cwd (e.g. launch.json).
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
 from flask import Flask
 from flask_cors import CORS
 
@@ -13,6 +20,7 @@ from routes.export         import export_bp
 from routes.reconciliation import recon_bp
 from routes.intelligence   import intelligence_bp
 from routes.gstr2b         import gstr2b_bp
+from routes.gstr2a         import gstr2a_bp
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +63,7 @@ app.register_blueprint(export_bp,       url_prefix="/api")
 app.register_blueprint(recon_bp,        url_prefix="/api")
 app.register_blueprint(intelligence_bp, url_prefix="/api")
 app.register_blueprint(gstr2b_bp,       url_prefix="/api")
+app.register_blueprint(gstr2a_bp,       url_prefix="/api")
 
 
 @app.get("/")
